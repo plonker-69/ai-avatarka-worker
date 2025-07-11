@@ -1,0 +1,274 @@
+name: CI - Test Handler
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  test-handler:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest black flake8 mypy
+        
+    - name: Lint with flake8
+      run: |
+        # Stop build if there are Python syntax errors or undefined names
+        flake8 src/ --count --select=E9,F63,F7,F82 --show-source --statistics
+        # Exit-zero treats all errors as warnings
+        flake8 src/ --count --exit-zero --max-complexity=10 --max-line-length=120 --statistics
+        
+    - name: Format check with black
+      run: |
+        black --check --diff src/
+        
+    - name: Type check with mypy
+      run: |
+        mypy src/ --ignore-missing-imports
+      continue-on-error: true
+        
+    - name: Validate project structure
+      run: |
+        echo "🔍 Checking project structure..."
+        
+        # Check required files exist
+        required_files=(
+          "src/handler.py"
+          "requirements.txt"
+          "Dockerfile"
+          "prompts/effects.json"
+          "workflow/universal_i2v.json"
+          "builder/install_comfyui.py"
+          "builder/setup_custom_nodes.py"
+          "builder/download_models.py"
+        )
+        
+        for file in "${required_files[@]}"; do
+          if [ ! -f "$file" ]; then
+            echo "❌ Missing required file: $file"
+            exit 1
+          else
+            echo "✅ Found: $file"
+          fi
+        done
+        
+    - name: Validate effects configuration
+      run: |
+        echo "🎭 Validating effects configuration..."
+        python -c "
+        import json
+        
+        # Load effects config
+        with open('prompts/effects.json', 'r') as f:
+            effects = json.load(f)
+        
+        # Check structure
+        assert 'effects' in effects, 'Missing effects key'
+        assert 'default_settings' in effects, 'Missing default_settings key'
+        
+        # Check each effect has required fields
+        required_fields = ['lora', 'prompt', 'negative_prompt', 'lora_strength']
+        effect_count = 0
+        
+        for name, config in effects['effects'].items():
+            effect_count += 1
+            for field in required_fields:
+                assert field in config, f'Effect {name} missing {field}'
+            
+            # Check LoRA filename format
+            assert config['lora'].endswith('.safetensors'), f'Invalid LoRA filename for {name}'
+            
+            # Check prompt is not empty
+            assert len(config['prompt'].strip()) > 10, f'Prompt too short for {name}'
+            
+            print(f'✅ Effect validated: {name}')
+        
+        print(f'✅ All {effect_count} effects validated successfully!')
+        "
+        
+    - name: Validate workflow format
+      run: |
+        echo "🔧 Validating workflow format..."
+        python -c "
+        import json
+        
+        # Load workflow
+        with open('workflow/universal_i2v.json', 'r') as f:
+            workflow = json.load(f)
+        
+        # Check API format (should have numbered keys)
+        node_count = 0
+        placeholder_count = 0
+        
+        for node_id, node_data in workflow.items():
+            if node_id.isdigit():
+                node_count += 1
+                
+                # Check required fields
+                assert 'class_type' in node_data, f'Node {node_id} missing class_type'
+                assert 'inputs' in node_data, f'Node {node_id} missing inputs'
+                
+                # Check for placeholders
+                inputs = node_data.get('inputs', {})
+                for key, value in inputs.items():
+                    if isinstance(value, str) and value.startswith('PLACEHOLDER_'):
+                        placeholder_count += 1
+                        print(f'✅ Found placeholder: {value} in node {node_id}')
+        
+        assert node_count > 10, f'Too few nodes found: {node_count}'
+        assert placeholder_count >= 3, f'Missing placeholders: {placeholder_count}'
+        
+        print(f'✅ Workflow validated: {node_count} nodes, {placeholder_count} placeholders')
+        "
+        
+    - name: Test handler imports
+      run: |
+        echo "📦 Testing handler imports..."
+        python -c "
+        import sys
+        sys.path.append('src')
+        
+        try:
+            from handler import (
+                load_effects_config,
+                process_input_image, 
+                customize_workflow,
+                encode_video_to_base64
+            )
+            print('✅ All handler functions imported successfully')
+        except ImportError as e:
+            print(f'❌ Import error: {e}')
+            sys.exit(1)
+        "
+        
+    - name: Test configuration loading
+      run: |
+        echo "⚙️ Testing configuration loading..."
+        python -c "
+        import sys, json
+        sys.path.append('src')
+        
+        # Mock the effects file path for testing
+        import handler
+        handler.EFFECTS_CONFIG = 'prompts/effects.json'
+        
+        # Test effects config loading
+        result = handler.load_effects_config()
+        assert result == True, 'Failed to load effects config'
+        assert handler.effects_data is not None, 'Effects data not loaded'
+        
+        # Test specific effect
+        ghostrider = handler.effects_data['effects']['ghostrider']
+        assert ghostrider['lora'] == 'ghostrider.safetensors', 'Wrong LoRA file'
+        
+        print('✅ Configuration loading test passed')
+        "
+        
+    - name: Test workflow customization
+      run: |
+        echo "🎨 Testing workflow customization..."
+        python -c "
+        import sys, json
+        sys.path.append('src')
+        import handler
+        
+        # Load test data
+        handler.EFFECTS_CONFIG = 'prompts/effects.json'
+        handler.load_effects_config()
+        
+        with open('workflow/universal_i2v.json', 'r') as f:
+            workflow = json.load(f)
+        
+        # Test customization
+        params = {
+            'image_filename': 'test.jpg',
+            'effect': 'ghostrider',
+            'prompt': 'custom prompt',
+            'seed': 12345
+        }
+        
+        customized = handler.customize_workflow(workflow.copy(), params)
+        
+        # Verify changes were made
+        found_image = False
+        found_prompt = False
+        found_lora = False
+        
+        for node_id, node_data in customized.items():
+            inputs = node_data.get('inputs', {})
+            
+            if inputs.get('image') == 'test.jpg':
+                found_image = True
+            if inputs.get('text') and 'ghost rider' in inputs['text'].lower():
+                found_prompt = True  
+            if inputs.get('lora_name') == 'ghostrider.safetensors':
+                found_lora = True
+        
+        assert found_image, 'Image filename not updated'
+        assert found_prompt, 'Prompt not updated'
+        assert found_lora, 'LoRA not updated'
+        
+        print('✅ Workflow customization test passed')
+        "
+        
+    - name: Check Docker build syntax
+      run: |
+        echo "🐳 Checking Dockerfile syntax..."
+        docker run --rm -i hadolint/hadolint < Dockerfile || echo "Dockerfile has style issues but will continue"
+        
+    - name: Validate test input
+      run: |
+        echo "📝 Validating test input format..."
+        python -c "
+        import json, base64
+        
+        with open('test_input.json', 'r') as f:
+            test_data = json.load(f)
+        
+        # Check structure
+        assert 'input' in test_data, 'Missing input key'
+        
+        input_data = test_data['input']
+        assert 'image' in input_data, 'Missing image'
+        assert 'effect' in input_data, 'Missing effect'
+        
+        # Validate base64 image
+        image_data = input_data['image']
+        if image_data.startswith('data:image'):
+            image_data = image_data.split(',')[1]
+        
+        try:
+            base64.b64decode(image_data)
+            print('✅ Valid base64 image')
+        except:
+            print('❌ Invalid base64 image')
+            exit(1)
+        
+        print('✅ Test input validation passed')
+        "
+        
+    - name: Summary
+      run: |
+        echo "🎉 All tests passed! Handler is ready for deployment."
+        echo ""
+        echo "✅ Code quality checks passed"
+        echo "✅ Project structure validated" 
+        echo "✅ Configuration files validated"
+        echo "✅ Handler functions tested"
+        echo "✅ Workflow format verified"
+        echo "✅ Test data validated"

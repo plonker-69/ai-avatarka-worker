@@ -1,0 +1,101 @@
+{
+  "name": "AI-Avatarka Video Generator",
+  "description": "Transform portraits into stunning animated avatars with cinematic special effects using Wan 2.1",
+  "author": "AI-Avatarka Team",
+  "version": "1.0.0",
+  "schema": {
+    "image": {
+      "env_var_name": "IMAGE",
+      "value": "",
+      "title": "Portrait Image",
+      "description": "Upload a portrait image to transform (JPG, PNG, WebP supported). Best results with clear face, good lighting, 512x512 minimum resolution.",
+      "required": true,
+      "type": "file",
+      "accept": "image/*"
+    },
+    "effect": {
+      "env_var_name": "EFFECT",
+      "value": "ghostrider",
+      "title": "Transformation Effect",
+      "description": "Choose your epic transformation style",
+      "required": true,
+      "type": "select",
+      "options": [
+        { "value": "ghostrider", "label": "🔥 Ghost Rider - Flaming skull transformation" },
+        { "value": "son_goku", "label": "⚡ Son Goku - Super Saiyan power up" },
+        { "value": "hulk", "label": "💚 Hulk - Incredible green transformation" },
+        { "value": "super_saian", "label": "🌟 Super Saiyan - Golden energy aura" },
+        { "value": "westworld", "label": "🤖 Westworld - Robotic face reveal" },
+        { "value": "samurai", "label": "⚔️ Samurai - Warrior transformation" },
+        { "value": "kamehameha", "label": "💥 Kamehameha - Energy beam attack" },
+        { "value": "jumpscare", "label": "👹 Jumpscare - Monster reveal" },
+        { "value": "melt_it", "label": "🌊 Melt - Liquid transformation" },
+        { "value": "mindblown", "label": "💣 Mind Blown - Head explosion" },
+        { "value": "muscles", "label": "💪 Muscles - Show off physique" },
+        { "value": "crush_it", "label": "🏗️ Crush - Hydraulic press effect" },
+        { "value": "fus_ro_dah", "label": "🌪️ Fus Ro Dah - Force push effect" },
+        { "value": "360", "label": "🔄 360 Rotation - Spin around" },
+        { "value": "vip_50_epochs", "label": "⭐ VIP - Red carpet glamour" },
+        { "value": "puppy", "label": "🐶 Puppy - Cute puppy swarm" },
+        { "value": "snow_white", "label": "🍎 Snow White - Disney princess" }
+      ]
+    },
+
+
+
+
+
+  },
+  "versions": {
+    "1.0.0": {
+      "imageName": "ai-avatarka-worker:latest",
+      "minimumCudaVersion": "12.8",
+      "categories": [
+        {
+          "title": "🎭 Transform Your Avatar",
+          "description": "Upload your photo and choose your epic transformation",
+          "settings": ["image", "effect"]
+        }
+      ]
+    }
+  },
+  "ui_config": {
+    "theme": "dark",
+    "primary_color": "#ff6b35",
+    "accent_color": "#f7931e",
+    "background_gradient": "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+    "show_preview": true,
+    "auto_submit": false,
+    "form_layout": "vertical"
+  },
+  "examples": [
+    {
+      "name": "🔥 Epic Ghost Rider",
+      "description": "Transform into the legendary Ghost Rider with flaming skull",
+      "settings": {
+        "effect": "ghostrider"
+      }
+    },
+    {
+      "name": "⚡ Super Saiyan Power Up", 
+      "description": "Unleash your inner Saiyan with golden energy aura",
+      "settings": {
+        "effect": "son_goku"
+      }
+    },
+    {
+      "name": "🤖 Westworld Robot Reveal",
+      "description": "Cinematic robotic face transformation",
+      "settings": {
+        "effect": "westworld"
+      }
+    }
+  ],
+  "tips": [
+    "💡 Use well-lit, clear portrait photos for best results",
+    "🎯 Always generates 720x720 at maximum quality", 
+    "⚡ Each video is exactly 5 seconds at 16 FPS",
+    "🎭 Each effect uses optimized prompts for best results",
+    "✨ Just upload and transform - that's it!"
+  ]
+}

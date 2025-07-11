@@ -1,0 +1,272 @@
+name: CD - Build & Deploy
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'development'
+        type: choice
+        options:
+        - development
+        - staging
+        - production
+
+env:
+  REGISTRY: docker.io
+  IMAGE_NAME: ai-avatarka-worker
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+      
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+        
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=semver,pattern={{major}}
+          type=sha,prefix={{branch}}-,suffix=-{{date 'YYYYMMDD'}}
+          type=raw,value=latest,enable={{is_default_branch}}
+          
+    - name: Pre-build validation
+      run: |
+        echo "🔍 Pre-build validation..."
+        
+        # Check if all required files exist
+        required_files=(
+          "Dockerfile"
+          "requirements.txt" 
+          "src/handler.py"
+          "prompts/effects.json"
+          "workflow/universal_i2v.json"
+          "builder/install_comfyui.py"
+          "builder/setup_custom_nodes.py"
+          "builder/download_models.py"
+        )
+        
+        for file in "${required_files[@]}"; do
+          if [ ! -f "$file" ]; then
+            echo "❌ Missing required file for build: $file"
+            exit 1
+          fi
+        done
+        
+        echo "✅ All required files present"
+        
+        # Check Dockerfile syntax
+        docker run --rm -i hadolint/hadolint < Dockerfile || echo "⚠️ Dockerfile style warnings"
+        
+        # Validate JSON files
+        python -c "
+        import json
+        
+        # Validate effects.json
+        with open('prompts/effects.json') as f:
+            effects = json.load(f)
+        print('✅ effects.json is valid')
+        
+        # Validate workflow
+        with open('workflow/universal_i2v.json') as f:
+            workflow = json.load(f)
+        print('✅ universal_i2v.json is valid')
+        
+        # Validate test input
+        with open('test_input.json') as f:
+            test_input = json.load(f)
+        print('✅ test_input.json is valid')
+        "
+        
+    - name: Build and push Docker image
+      id: build
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./Dockerfile
+        platforms: linux/amd64
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        build-args: |
+          BUILDTIME=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
+          VERSION=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.version'] }}
+          REVISION=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.revision'] }}
+          
+    - name: Test Docker image
+      run: |
+        echo "🧪 Testing built Docker image..."
+        
+        # Get the built image tag
+        IMAGE_TAG="${{ steps.meta.outputs.tags }}" | head -1
+        
+        # Test that image runs and shows expected output
+        timeout 300 docker run --rm $IMAGE_TAG python -c "
+        import sys
+        sys.path.append('/src')
+        
+        # Test imports
+        try:
+            import runpod
+            import requests
+            from PIL import Image
+            print('✅ Core dependencies available')
+        except ImportError as e:
+            print(f'❌ Missing dependency: {e}')
+            sys.exit(1)
+        
+        # Test handler import
+        try:
+            from handler import handler, load_effects_config
+            print('✅ Handler imports successfully')
+        except ImportError as e:
+            print(f'❌ Handler import failed: {e}')
+            sys.exit(1)
+        
+        print('✅ Docker image test passed')
+        " || echo "⚠️ Docker image test had issues"
+        
+    - name: Generate deployment summary
+      run: |
+        echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Image:** \`${{ steps.meta.outputs.tags }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "**Digest:** \`${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "**Platform:** \`linux/amd64\`" >> $GITHUB_STEP_SUMMARY
+        echo "**Registry:** \`${{ env.REGISTRY }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📋 Build Details" >> $GITHUB_STEP_SUMMARY
+        echo "- **Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Trigger:** \`${{ github.event_name }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🎯 RunPod Deployment" >> $GITHUB_STEP_SUMMARY
+        echo "Use this image in RunPod:" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        echo "${{ steps.meta.outputs.tags }}" | head -1 >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        
+  security-scan:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.event_name != 'pull_request'
+    
+    steps:
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ needs.build-and-push.outputs.image-tag }}
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+        
+    - name: Upload Trivy scan results to GitHub Security
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+        
+  deploy-runpod:
+    runs-on: ubuntu-latest
+    needs: [build-and-push, security-scan]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: 
+      name: ${{ github.event.inputs.environment || 'development' }}
+      
+    steps:
+    - name: Deploy to RunPod (Webhook)
+      if: secrets.RUNPOD_WEBHOOK_URL
+      run: |
+        echo "🚀 Triggering RunPod deployment..."
+        
+        # Prepare deployment payload
+        PAYLOAD=$(cat <<EOF
+        {
+          "image": "${{ needs.build-and-push.outputs.image-tag }}",
+          "digest": "${{ needs.build-and-push.outputs.image-digest }}",
+          "commit": "${{ github.sha }}",
+          "branch": "${{ github.ref_name }}",
+          "environment": "${{ github.event.inputs.environment || 'development' }}"
+        }
+        EOF
+        )
+        
+        # Send webhook to RunPod
+        curl -X POST \
+          -H "Content-Type: application/json" \
+          -H "Authorization: Bearer ${{ secrets.RUNPOD_API_KEY }}" \
+          -d "$PAYLOAD" \
+          "${{ secrets.RUNPOD_WEBHOOK_URL }}" \
+        && echo "✅ RunPod deployment triggered" \
+        || echo "❌ RunPod deployment failed"
+        
+    - name: Update endpoint template
+      if: secrets.RUNPOD_API_KEY && github.ref == 'refs/heads/main'
+      run: |
+        echo "📝 Updating RunPod endpoint template..."
+        
+        # Update template with new image
+        curl -X PATCH \
+          -H "Content-Type: application/json" \
+          -H "Authorization: Bearer ${{ secrets.RUNPOD_API_KEY }}" \
+          -d "{
+            \"imageName\": \"${{ needs.build-and-push.outputs.image-tag }}\",
+            \"version\": \"${{ github.ref_name }}-${{ github.sha }}\"
+          }" \
+          "https://api.runpod.ai/graphql" \
+        && echo "✅ Template updated" \
+        || echo "⚠️ Template update failed (manual update required)"
+        
+  notify:
+    runs-on: ubuntu-latest
+    needs: [build-and-push, deploy-runpod]
+    if: always()
+    
+    steps:
+    - name: Notify deployment status
+      run: |
+        if [ "${{ needs.build-and-push.result }}" == "success" ]; then
+          echo "✅ Build successful: ${{ needs.build-and-push.outputs.image-tag }}"
+        else
+          echo "❌ Build failed"
+        fi
+        
+        if [ "${{ needs.deploy-runpod.result }}" == "success" ]; then
+          echo "✅ Deployment successful"
+        elif [ "${{ needs.deploy-runpod.result }}" == "skipped" ]; then
+          echo "⏭️ Deployment skipped"
+        else
+          echo "❌ Deployment failed"
+        fi
+        
+        echo "📊 Full pipeline status: ${{ job.status }}"

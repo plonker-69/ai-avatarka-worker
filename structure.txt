@@ -1,0 +1,37 @@
+# AI-Avatarka RunPod Serverless Worker - Project Structure
+
+```
+ai-avatarka-worker/
+├── Dockerfile  ✅                  # Docker build configuration (CUDA 12.8)
+├── requirements.txt    ✅         # Python dependencies
+├── test_input.json             # Local testing configuration
+├── worker-config.json   ✅       # RunPod UI configuration
+├── src/                        # Source code
+│   └── handler.py      ✅        # Main worker handler
+├── builder/                    # Build-time scripts
+│   ├── download_models.py      # Wan 2.1 model download script
+│   ├── install_comfyui.py      # ComfyUI installation
+│   └── setup_custom_nodes.py   # Custom nodes installation
+├── workflow/                   # Single universal workflow
+│   └── universal_i2v.json      # Universal image-to-video workflow (your batches.json)
+├── lora/                       # LoRA files for different effects
+│   ├── ghostrider.safetensors  # Ghost Rider transformation
+│ 
+├── prompts/                    # Effect prompts configuration
+│   └── effects.json  ✅          # Prompts for each effect type
+└── .github/                    # GitHub Actions (optional)
+    └── workflows/
+        ├── CI-test_handler.yml # Test handler functionality
+        └── CD-docker_dev.yml   # Build and deploy
+```
+
+## Key Points:
+
+1. **Single Universal Workflow**: One `universal_i2v.json` file (based on your batches.json)
+2. **Dynamic Changes**: Handler will modify:
+   - Input image (user upload)
+   - LoRA file (based on effect type)
+   - Positive prompt (from effects.json)
+3. **CUDA 12.8**: Dockerfile will use proper CUDA version
+4. **Multiple LoRA Files**: One LoRA per transformation effect
+5. **Effect Prompts**: Centralized prompt configuration

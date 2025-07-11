@@ -1,0 +1,49 @@
+# Large model files - downloaded during build
+*.safetensors
+*.bin
+*.ckpt
+*.pth
+
+# LoRA directory contents (downloaded from Google Drive)
+lora/*.safetensors
+
+# ComfyUI generated files
+ComfyUI/
+output/
+input/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Docker
+.dockerignore
+
+# Environment variables
+.env
+.env.local
