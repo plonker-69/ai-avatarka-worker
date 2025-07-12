@@ -4,40 +4,32 @@ FROM nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04 AS base
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_PREFER_BINARY=1 \
     PYTHONUNBUFFERED=1 \
+    CMAKE_BUILD_PARALLEL_LEVEL=8 \
     COMFYUI_PATH="/workspace/ComfyUI"
 
-# Install system dependencies with cache mount for faster builds
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends \
-    python3.12 \
-    python3.12-pip \
-    python3.12-dev \
-    python3.12-venv \
-    git \
-    wget \
-    curl \
-    ffmpeg \
-    libgl1-mesa-glx \
-    libglib2.0-0 \
-    libsm6 \
-    libxext6 \
-    libxrender-dev \
-    libgomp1 \
-    && ln -sf /usr/bin/python3.12 /usr/bin/python \
-    && ln -sf /usr/bin/python3.12 /usr/bin/python3 \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        python3.12 python3.12-venv python3.12-dev \
+        python3-pip \
+        curl ffmpeg git wget vim \
+        libgl1 libglib2.0-0 build-essential gcc && \
+    \
+    # make Python3.12 the default python & pip
+    ln -sf /usr/bin/python3.12 /usr/bin/python && \
+    ln -sf /usr/bin/pip3 /usr/bin/pip && \
+    \
+    python3.12 -m venv /opt/venv && \
+    \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Create virtual environment for better isolation
-RUN python3.12 -m venv /opt/venv
+# Use the virtual environment
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Install core Python dependencies with cache
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --upgrade pip setuptools wheel
-
-# Install your requirements with cache
+# Install your requirements
 COPY requirements.txt /requirements.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip && \
     pip install -r /requirements.txt --no-cache-dir
 
 # Copy and run build scripts
@@ -47,7 +39,7 @@ RUN python /builder/install_comfyui.py && \
     python /builder/download_models.py
 
 FROM base AS final
-# Ensure virtual environment is used
+# Make sure to use the virtual environment here too
 ENV PATH="/opt/venv/bin:$PATH"
 
 # Copy universal workflow
