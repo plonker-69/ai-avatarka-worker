@@ -25,48 +25,30 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       
-    - name: Free up disk space
+    - name: Check initial disk space
       run: |
-        echo "🧹 Freeing up disk space..."
-        
-        # Show initial disk usage
+        echo "📊 Initial disk space:"
         df -h
+        echo "📦 Largest directories:"
+        sudo du -h /usr/ | sort -hr | head -10 || true
         
-        # Remove unnecessary packages and files
-        sudo apt-get remove -y \
-          '^dotnet-.*' \
-          '^llvm-.*' \
-          'php.*' \
-          '^mongodb-.*' \
-          '^mysql-.*' \
-          azure-cli \
-          google-cloud-sdk \
-          hhvm \
-          google-chrome-stable \
-          firefox \
-          powershell \
-          mono-devel \
-          libgl1-mesa-dri
+    - name: Free up disk space
+      uses: jlumbroso/free-disk-space@main
+      with:
+        # Delete tool cache and large packages
+        tool-cache: true
+        android: true
+        dotnet: true
+        haskell: true
+        large-packages: true
+        docker-images: true
+        swap-storage: true
         
-        # Clean package cache
-        sudo apt-get autoremove -y
-        sudo apt-get clean
-        
-        # Remove large directories
-        sudo rm -rf /usr/share/dotnet/
-        sudo rm -rf /usr/local/lib/android/
-        sudo rm -rf /opt/ghc/
-        sudo rm -rf /opt/hostedtoolcache/CodeQL/
-        sudo rm -rf /usr/local/share/boost/
-        sudo rm -rf /usr/lib/jvm/
-        sudo rm -rf /usr/share/swift/
-        
-        # Clear Docker system cache
-        docker system prune -af || true
-        
-        # Show disk usage after cleanup
+    - name: Check disk space after cleanup
+      run: |
         echo "🎯 Disk space after cleanup:"
         df -h
+        echo "📈 Available space: $(df -h / | awk 'NR==2{print $4}')"
         
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
@@ -130,7 +112,24 @@ jobs:
             print('⚠️  download_models.py not found')
         "
         
-    - name: Build and push Docker image (Multi-stage with cleanup)
+    - name: Monitor disk space during build
+      run: |
+        echo "📊 Disk space before Docker build:"
+        df -h
+        
+        # Start background monitoring
+        (
+          while true; do
+            sleep 60
+            echo "⏰ $(date): $(df -h / | awk 'NR==2{print "Available: " $4 ", Used: " $5}')"
+          done
+        ) &
+        MONITOR_PID=$!
+        
+        # Store PID for cleanup
+        echo $MONITOR_PID > /tmp/monitor.pid
+        
+    - name: Build and push Docker image (Space Optimized)
       id: build
       uses: docker/build-push-action@v5
       with:
@@ -140,24 +139,36 @@ jobs:
         push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
+        # Aggressive caching and optimization
         cache-from: type=gha
         cache-to: type=gha,mode=max
         build-args: |
           BUILDTIME=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
           VERSION=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.version'] }}
           REVISION=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.revision'] }}
-        # Optimize build
+        # Space optimization
         provenance: false
         sbom: false
-        # Use max compression to reduce layer sizes
         outputs: type=registry,compression=gzip,compression-level=9
+        # Use inline cache to reduce space usage
+        cache-to: type=inline,mode=max
+        # Remove intermediate layers aggressively
+        no-cache: false
           
-    - name: Clean up build cache
+    - name: Clean up build cache and monitoring
       if: always()
       run: |
-        echo "🧹 Cleaning up build artifacts..."
+        # Stop monitoring
+        if [ -f /tmp/monitor.pid ]; then
+          kill $(cat /tmp/monitor.pid) || true
+          rm /tmp/monitor.pid
+        fi
+        
+        echo "🧹 Final cleanup..."
         docker system prune -af --volumes || true
         docker builder prune -af || true
+        
+        echo "📊 Final disk usage:"
         df -h
         
     - name: Test Docker image (lightweight)
