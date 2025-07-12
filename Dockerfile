@@ -1,4 +1,4 @@
-FROM runpod/base:0.7.2-cuda12.8.0
+FROM nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -6,12 +6,13 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     COMFYUI_PATH="/workspace/ComfyUI"
 
-# Set python3.11 as default
-RUN ln -sf $(which python3.11) /usr/local/bin/python && \
-    ln -sf $(which python3.11) /usr/local/bin/python3
+# Set python3.12 as default (Ubuntu 24.04 uses Python 3.12)
+RUN apt-get update && apt-get install -y python3 python3-pip python3-venv && \
+    ln -sf $(which python3) /usr/local/bin/python && \
+    ln -sf $(which python3) /usr/local/bin/python3
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y \
+RUN apt-get install -y \
     git \
     wget \
     curl \
@@ -27,9 +28,14 @@ RUN apt-get update && apt-get install -y \
 # Create workspace
 RUN mkdir -p /workspace
 
-# Install Python dependencies
+# Create virtual environment to handle Ubuntu 24.04 PEP 668
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Install Python dependencies in virtual environment
 COPY requirements.txt /requirements.txt
-RUN pip install --upgrade -r /requirements.txt --no-cache-dir
+RUN pip install --upgrade pip && \
+    pip install --upgrade -r /requirements.txt --no-cache-dir
 
 # Copy project files
 COPY builder/ /builder/
