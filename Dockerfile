@@ -19,8 +19,9 @@ RUN apt-get update && apt-get install -y \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
-    libxrender-dev \
+    libxrender1 \
     libgomp1 \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     && ln -sf $(which python3) /usr/local/bin/python \
     && ln -sf $(which python3) /usr/local/bin/python3
