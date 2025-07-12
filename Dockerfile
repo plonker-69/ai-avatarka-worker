@@ -6,13 +6,11 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     COMFYUI_PATH="/workspace/ComfyUI"
 
-# Set python3.12 as default (Ubuntu 24.04 uses Python 3.12)
-RUN apt-get update && apt-get install -y python3 python3-pip python3-venv && \
-    ln -sf $(which python3) /usr/local/bin/python && \
-    ln -sf $(which python3) /usr/local/bin/python3
-
-# Install system dependencies
-RUN apt-get install -y \
+# Install system dependencies and Python
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    python3-venv \
     git \
     wget \
     curl \
@@ -23,7 +21,9 @@ RUN apt-get install -y \
     libxext6 \
     libxrender-dev \
     libgomp1 \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf $(which python3) /usr/local/bin/python \
+    && ln -sf $(which python3) /usr/local/bin/python3
 
 # Create workspace
 RUN mkdir -p /workspace
