@@ -139,7 +139,7 @@ jobs:
         push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
-        # Aggressive caching and optimization
+        # Caching strategy
         cache-from: type=gha
         cache-to: type=gha,mode=max
         build-args: |
@@ -150,10 +150,6 @@ jobs:
         provenance: false
         sbom: false
         outputs: type=registry,compression=gzip,compression-level=9
-        # Use inline cache to reduce space usage
-        cache-to: type=inline,mode=max
-        # Remove intermediate layers aggressively
-        no-cache: false
           
     - name: Clean up build cache and monitoring
       if: always()
