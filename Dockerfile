@@ -1,3 +1,5 @@
+# Update your Dockerfile with custom nodes
+cat > Dockerfile << 'EOF'
 FROM nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -66,6 +68,30 @@ RUN echo "=== Installing ComfyUI ===" && \
     pip install --no-cache-dir -r requirements.txt && \
     rm -rf .git
 
+# Install required custom nodes for Wan 2.1 workflow
+RUN echo "=== Installing Custom Nodes ===" && \
+    cd ComfyUI/custom_nodes && \
+    \
+    echo "Installing WanVideoWrapper..." && \
+    git clone --depth 1 https://github.com/kijai/ComfyUI-WanVideoWrapper.git && \
+    cd ComfyUI-WanVideoWrapper && \
+    (pip install --no-cache-dir -r requirements.txt 2>/dev/null || echo "No requirements for WanVideoWrapper") && \
+    cd .. && \
+    \
+    echo "Installing VideoHelperSuite..." && \
+    git clone --depth 1 https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git && \
+    cd ComfyUI-VideoHelperSuite && \
+    (pip install --no-cache-dir -r requirements.txt 2>/dev/null || echo "No requirements for VideoHelperSuite") && \
+    cd .. && \
+    \
+    echo "Installing ComfyUI_essentials..." && \
+    git clone --depth 1 https://github.com/cubiq/ComfyUI_essentials.git && \
+    cd ComfyUI_essentials && \
+    (pip install --no-cache-dir -r requirements.txt 2>/dev/null || echo "No requirements for ComfyUI_essentials") && \
+    cd .. && \
+    \
+    echo "Custom nodes installation completed!"
+
 # Copy only essential files
 COPY src/handler.py /handler.py
 COPY prompts/ /workspace/prompts/
@@ -77,3 +103,4 @@ RUN mkdir -p /workspace/ComfyUI/models/lora \
              /workspace/ComfyUI/output
 
 CMD python -u /handler.py
+EOF
