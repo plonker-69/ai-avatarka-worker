@@ -1,5 +1,5 @@
 """
-AI-Avatarka RunPod Serverless Worker Handler - FIXED VERSION
+AI-Avatarka RunPod Serverless Worker Handler - COMPLETE FIXED VERSION
 Transforms images into videos using Wan 2.1 with different effects.
 """
 
@@ -37,7 +37,7 @@ def load_effects_config():
     """Load effects configuration"""
     global effects_data
     try:
-        with open(EFFECTS_CONFIG, 'r') as f:
+        with open(EFFECTS_CONFIG, "r") as f:
             effects_data = json.load(f)
         logger.info("✅ Effects configuration loaded")
         return True
@@ -88,7 +88,7 @@ def start_comfyui():
 def load_workflow():
     """Load universal workflow template"""
     try:
-        with open(WORKFLOW_PATH, 'r') as f:
+        with open(WORKFLOW_PATH, "r") as f:
             workflow = json.load(f)
         logger.info("✅ Universal workflow loaded")
         return workflow
@@ -100,16 +100,16 @@ def process_input_image(image_data: str) -> Optional[str]:
     """Process and save input image"""
     try:
         # Handle data URL format
-        if image_data.startswith('data:image'):
-            image_data = image_data.split(',')[1]
+        if image_data.startswith("data:image"):
+            image_data = image_data.split(",")[1]
         
         # Decode base64 image
         image_bytes = base64.b64decode(image_data)
         image = Image.open(io.BytesIO(image_bytes))
         
         # Convert to RGB if necessary
-        if image.mode != 'RGB':
-            image = image.convert('RGB')
+        if image.mode != "RGB":
+            image = image.convert("RGB")
         
         # Save to ComfyUI input directory
         input_dir = Path(COMFYUI_PATH) / "input"
@@ -118,7 +118,7 @@ def process_input_image(image_data: str) -> Optional[str]:
         filename = f"{uuid.uuid4()}.jpg"
         image_path = input_dir / filename
         
-        image.save(image_path, 'JPEG', quality=95)
+        image.save(image_path, "JPEG", quality=95)
         logger.info(f"✅ Input image saved: {filename}")
         
         return filename
@@ -271,10 +271,10 @@ def wait_for_completion(prompt_id: str, timeout: int = 600) -> Optional[str]:
 def encode_video_to_base64(video_path: str) -> Optional[str]:
     """Convert video file to base64"""
     try:
-        with open(video_path, 'rb') as f:
+        with open(video_path, "rb") as f:
             video_bytes = f.read()
         
-        video_base64 = base64.b64encode(video_bytes).decode('utf-8')
+        video_base64 = base64.b64encode(video_bytes).decode("utf-8")
         video_size_mb = len(video_bytes) / (1024 * 1024)
         logger.info(f"✅ Video encoded to base64 ({video_size_mb:.2f}MB)")
         return video_base64
