@@ -1,7 +1,9 @@
 {
   "32": {
     "inputs": {
-      "block_swap": 10
+      "offload_txt_emb": true,
+      "offload_img_emb": true,
+      "blocks_to_swap": 10
     },
     "class_type": "WanVideoBlockSwap",
     "_meta": {
@@ -10,10 +12,11 @@
   },
   "22": {
     "inputs": {
-      "model_name": "wan2.1_i2v_480p_14B_bf16.safetensors",
-      "dtype": "bf16",
-      "cache_dtype": "fp8_e4m3fn",
-      "device": "offload_device",
+      "model": "Wan2_1-I2V-14B-480P_fp8_e5m2.safetensors",
+      "quantization": "fp8_e5m2",
+      "base_precision": "bf16",
+      "load_device": "gpu",
+      "offload_device": "cpu",
       "attn_mode": "sageattn",
       "block_swap_args": ["32", 0],
       "lora": ["41", 0]
@@ -30,8 +33,12 @@
       "tile_sample_min_width": 272,
       "tile_overlap_factor_height": 144,
       "tile_overlap_factor_width": 128,
+      "tile_x": 2,
+      "tile_y": 2,
+      "tile_stride_x": 1,
+      "tile_stride_y": 1,
       "vae": ["21", 0],
-      "samples": ["27", 0]
+      "images": ["27", 0]
     },
     "class_type": "WanVideoDecode",
     "_meta": {
@@ -40,14 +47,15 @@
   },
   "17": {
     "inputs": {
-      "height": 720,
-      "width": 720,
+      "generation_height": 720,
+      "generation_width": 720,
+      "num_frames": 85,
       "strength": 85,
       "use_tiling": true,
       "noise_aug_strength": 0,
       "guidance_scale": 1,
       "guidance_scale_end": 1,
-      "clip": ["13", 0],
+      "clip_vision": ["13", 0],
       "image": ["37", 0],
       "vae": ["21", 0]
     },
@@ -58,8 +66,8 @@
   },
   "41": {
     "inputs": {
-      "lora_name": "PLACEHOLDER_LORA",
-      "strength": 1
+      "lora": "PLACEHOLDER_LORA",
+      "strength": 1.0
     },
     "class_type": "WanVideoLoraSelect",
     "_meta": {
@@ -69,8 +77,8 @@
   "11": {
     "inputs": {
       "model_name": "umt5-xxl-enc-bf16.safetensors",
-      "dtype": "bf16",
-      "device": "offload_device",
+      "precision": "bf16",
+      "device": "gpu",
       "attention_mode": "disabled"
     },
     "class_type": "LoadWanVideoT5TextEncoder",
@@ -82,7 +90,7 @@
     "inputs": {
       "model_name": "open-clip-xlm-roberta-large-vit-huge-14_visual_fp16.safetensors",
       "dtype": "fp16",
-      "device": "offload_device"
+      "device": "gpu"
     },
     "class_type": "LoadWanVideoClipTextEncoder",
     "_meta": {
@@ -91,8 +99,8 @@
   },
   "16": {
     "inputs": {
-      "text": "PLACEHOLDER_PROMPT",
-      "negative_text": "PLACEHOLDER_NEGATIVE_PROMPT",
+      "positive_prompt": "PLACEHOLDER_PROMPT",
+      "negative_prompt": "PLACEHOLDER_NEGATIVE_PROMPT",
       "use_offload": true,
       "t5": ["11", 0]
     },
@@ -104,9 +112,12 @@
   "27": {
     "inputs": {
       "steps": 10,
-      "guidance_scale": 6,
+      "cfg": 6,
+      "shift": 1.0,
+      "riflex_freq_index": 0,
+      "force_offload": true,
       "frames": 85,
-      "seed": -1,
+      "seed": 12345,
       "control_after_generate": "fixed",
       "denoise": true,
       "scheduler": "dpm++",
@@ -123,7 +134,7 @@
   },
   "21": {
     "inputs": {
-      "model_name": "wan_2.1_vae.safetensors",
+      "model_name": "Wan2_1_VAE_bf16.safetensors",
       "dtype": "bf16"
     },
     "class_type": "WanVideoVAELoader",

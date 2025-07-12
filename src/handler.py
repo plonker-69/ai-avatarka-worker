@@ -1,5 +1,5 @@
 """
-AI-Avatarka RunPod Serverless Worker Handler
+AI-Avatarka RunPod Serverless Worker Handler - FIXED VERSION
 Transforms images into videos using Wan 2.1 with different effects.
 """
 
@@ -68,9 +68,9 @@ def start_comfyui():
         ], cwd=COMFYUI_PATH)
         
         # Wait for server to be ready
-        for i in range(60):  # Wait up to 60 seconds
+        for i in range(120):  # Wait up to 2 minutes
             try:
-                response = requests.get(f"http://{COMFYUI_SERVER}/", timeout=2)
+                response = requests.get(f"http://{COMFYUI_SERVER}/", timeout=5)
                 if response.status_code == 200:
                     comfyui_initialized = True
                     logger.info("✅ ComfyUI server started successfully")
@@ -128,7 +128,7 @@ def process_input_image(image_data: str) -> Optional[str]:
         return None
 
 def customize_workflow(workflow: Dict, params: Dict) -> Dict:
-    """Customize workflow with user parameters - API format"""
+    """Customize workflow with user parameters - FIXED VERSION"""
     try:
         effect = params.get("effect", "ghostrider")
         effect_config = effects_data["effects"].get(effect, effects_data["effects"]["ghostrider"])
@@ -149,36 +149,39 @@ def customize_workflow(workflow: Dict, params: Dict) -> Dict:
             
             # Update WanVideoTextEncode (Node 16) - replace prompts
             elif class_type == "WanVideoTextEncode":
-                if inputs.get("text") == "PLACEHOLDER_PROMPT":
-                    inputs["text"] = params.get("prompt", effect_config["prompt"])
-                    logger.info(f"✅ Updated prompt for effect: {effect}")
+                if inputs.get("positive_prompt") == "PLACEHOLDER_PROMPT":
+                    inputs["positive_prompt"] = params.get("prompt", effect_config["prompt"])
+                    logger.info(f"✅ Updated positive prompt for effect: {effect}")
                 
-                if inputs.get("negative_text") == "PLACEHOLDER_NEGATIVE_PROMPT":
-                    inputs["negative_text"] = params.get("negative_prompt", effect_config["negative_prompt"])
+                if inputs.get("negative_prompt") == "PLACEHOLDER_NEGATIVE_PROMPT":
+                    inputs["negative_prompt"] = params.get("negative_prompt", effect_config["negative_prompt"])
                     logger.info(f"✅ Updated negative prompt for effect: {effect}")
             
             # Update WanVideoLoraSelect (Node 41) - replace PLACEHOLDER_LORA
             elif class_type == "WanVideoLoraSelect":
-                if inputs.get("lora_name") == "PLACEHOLDER_LORA":
-                    inputs["lora_name"] = effect_config["lora"]
+                if inputs.get("lora") == "PLACEHOLDER_LORA":
+                    inputs["lora"] = effect_config["lora"]
                     inputs["strength"] = effect_config.get("lora_strength", 1.0)
                     logger.info(f"✅ Updated LoRA: {effect_config['lora']} (strength: {inputs['strength']})")
             
-            # Update WanVideoSampler (Node 27) - update seed if provided
+            # Update WanVideoSampler (Node 27) - handle seed properly
             elif class_type == "WanVideoSampler":
-                if params.get("seed", -1) != -1:
-                    inputs["seed"] = params["seed"]
-                    logger.info(f"✅ Updated seed: {params['seed']}")
+                # Handle seed - use random if -1
+                seed_value = params.get("seed", -1)
+                if seed_value == -1:
+                    seed_value = int(time.time() * 1000) % (2**31)  # Generate random seed
+                inputs["seed"] = seed_value
+                logger.info(f"✅ Updated seed: {seed_value}")
                 
-                # Optional: Update other sampler parameters if provided
-                if params.get("steps") != 10:
-                    inputs["steps"] = params.get("steps", 10)
+                # Update other sampler parameters if provided
+                if "steps" in params and params["steps"] != 10:
+                    inputs["steps"] = params["steps"]
                     
-                if params.get("cfg") != 6:
-                    inputs["guidance_scale"] = params.get("cfg", 6)
+                if "cfg" in params and params["cfg"] != 6:
+                    inputs["cfg"] = params["cfg"]
                     
-                if params.get("frames") != 85:
-                    inputs["frames"] = params.get("frames", 85)
+                if "frames" in params and params["frames"] != 85:
+                    inputs["frames"] = params["frames"]
         
         logger.info(f"✅ Workflow customized for effect: {effect}")
         return workflow
