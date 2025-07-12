@@ -114,7 +114,7 @@ def main():
             if update_download_script(file_mapping):
                 print()
                 print("🎉 Setup complete!")
-                print("You can now build your Docker container and the LoRA files will be downloaded automatically.")
+                print("You can now push to GitHub and the LoRA files will be downloaded automatically.")
             else:
                 print("❌ Failed to update download script")
         else:

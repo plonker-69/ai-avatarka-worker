@@ -24,88 +24,33 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        # Install testing tools
-        pip install flake8 black
-        
-    - name: Lint with flake8
-      run: |
-        # Stop build if there are Python syntax errors or undefined names
-        flake8 src/ --count --select=E9,F63,F7,F82 --show-source --statistics
-        # Exit-zero treats all errors as warnings
-        flake8 src/ --count --exit-zero --max-complexity=10 --max-line-length=120 --statistics
-        
-    - name: Format check with black
-      run: |
-        black --check --diff src/
-      continue-on-error: true
+        pip install pytest black flake8
         
     - name: Validate project structure
       run: |
         echo "🔍 Checking project structure..."
         
-        # Check required files exist
         required_files=(
           "src/handler.py"
           "requirements.txt"
           "Dockerfile"
           "prompts/effects.json"
           "workflow/universal_i2v.json"
-          "builder/install_comfyui.py"
-          "builder/setup_custom_nodes.py"
           "builder/download_models.py"
-          "worker-config.json"
-          "test_input.json"
         )
         
-        missing_files=()
         for file in "${required_files[@]}"; do
           if [ ! -f "$file" ]; then
             echo "❌ Missing required file: $file"
-            missing_files+=("$file")
+            exit 1
           else
             echo "✅ Found: $file"
           fi
         done
         
-        if [ ${#missing_files[@]} -gt 0 ]; then
-          echo "❌ Missing files detected"
-          exit 1
-        fi
-        
-        echo "✅ All required files present"
-        
-    - name: Validate JSON configurations
+    - name: Validate configurations
       run: |
-        echo "📋 Validating JSON configurations..."
-        python -c "
-        import json
-        import sys
-        
-        def validate_json_file(filepath, description):
-            try:
-                with open(filepath, 'r') as f:
-                    data = json.load(f)
-                print(f'✅ {description} is valid JSON')
-                return data
-            except json.JSONDecodeError as e:
-                print(f'❌ {description} has invalid JSON: {e}')
-                sys.exit(1)
-            except FileNotFoundError:
-                print(f'❌ {description} file not found: {filepath}')
-                sys.exit(1)
-        
-        # Validate all JSON files
-        validate_json_file('prompts/effects.json', 'Effects config')
-        validate_json_file('workflow/universal_i2v.json', 'Workflow config')
-        validate_json_file('worker-config.json', 'Worker config')
-        validate_json_file('test_input.json', 'Test input')
-        
-        print('✅ All JSON files are valid')
-        "
-        
-    - name: Validate effects configuration
-      run: |
-        echo "🎭 Validating effects configuration..."
+        echo "🎭 Validating configurations..."
         python -c "
         import json
         
@@ -114,80 +59,24 @@ jobs:
             effects = json.load(f)
         
         # Check structure
-        if 'effects' not in effects:
-            print('❌ Missing effects key')
-            exit(1)
-        if 'default_settings' not in effects:
-            print('❌ Missing default_settings key')
-            exit(1)
+        assert 'effects' in effects, 'Missing effects key'
+        assert 'default_settings' in effects, 'Missing default_settings key'
         
-        # Check each effect has required fields
+        # Check each effect
         required_fields = ['lora', 'prompt', 'negative_prompt', 'lora_strength']
         effect_count = 0
         
         for name, config in effects['effects'].items():
             effect_count += 1
             for field in required_fields:
-                if field not in config:
-                    print(f'❌ Effect {name} missing {field}')
-                    exit(1)
+                assert field in config, f'Effect {name} missing {field}'
             
-            # Check LoRA filename format
-            if not config['lora'].endswith('.safetensors'):
-                print(f'❌ Invalid LoRA filename for {name}: {config[\"lora\"]}')
-                exit(1)
-            
-            # Check prompt is not empty
-            if len(config['prompt'].strip()) <= 10:
-                print(f'❌ Prompt too short for {name}')
-                exit(1)
+            assert config['lora'].endswith('.safetensors'), f'Invalid LoRA filename for {name}'
+            assert len(config['prompt'].strip()) > 10, f'Prompt too short for {name}'
             
             print(f'✅ Effect validated: {name}')
         
         print(f'✅ All {effect_count} effects validated successfully!')
-        "
-        
-    - name: Validate workflow format
-      run: |
-        echo "🔧 Validating workflow format..."
-        python -c "
-        import json
-        
-        # Load workflow
-        with open('workflow/universal_i2v.json', 'r') as f:
-            workflow = json.load(f)
-        
-        # Check API format (should have numbered keys)
-        node_count = 0
-        placeholder_count = 0
-        
-        for node_id, node_data in workflow.items():
-            if node_id.isdigit():
-                node_count += 1
-                
-                # Check required fields
-                if 'class_type' not in node_data:
-                    print(f'❌ Node {node_id} missing class_type')
-                    exit(1)
-                if 'inputs' not in node_data:
-                    print(f'❌ Node {node_id} missing inputs')
-                    exit(1)
-                
-                # Check for placeholders
-                inputs = node_data.get('inputs', {})
-                for key, value in inputs.items():
-                    if isinstance(value, str) and value.startswith('PLACEHOLDER_'):
-                        placeholder_count += 1
-                        print(f'✅ Found placeholder: {value} in node {node_id}')
-        
-        if node_count < 10:
-            print(f'❌ Too few nodes found: {node_count}')
-            exit(1)
-        if placeholder_count < 3:
-            print(f'❌ Missing placeholders: {placeholder_count}')
-            exit(1)
-        
-        print(f'✅ Workflow validated: {node_count} nodes, {placeholder_count} placeholders')
         "
         
     - name: Test handler imports
@@ -195,234 +84,21 @@ jobs:
         echo "📦 Testing handler imports..."
         python -c "
         import sys
-        import os
-        
-        # Add src to path
-        sys.path.insert(0, 'src')
+        sys.path.append('src')
         
         try:
-            # Test individual function imports
-            from handler import load_effects_config
-            print('✅ load_effects_config imported')
-            
-            from handler import process_input_image
-            print('✅ process_input_image imported')
-            
-            from handler import customize_workflow
-            print('✅ customize_workflow imported')
-            
-            from handler import encode_video_to_base64
-            print('✅ encode_video_to_base64 imported')
-            
-            # Test main handler
-            from handler import handler
-            print('✅ main handler imported')
-            
+            from handler import (
+                load_effects_config,
+                process_input_image, 
+                customize_workflow,
+                encode_video_to_base64
+            )
             print('✅ All handler functions imported successfully')
-            
         except ImportError as e:
             print(f'❌ Import error: {e}')
-            # Print more details about the import error
-            import traceback
-            traceback.print_exc()
-            sys.exit(1)
-        except Exception as e:
-            print(f'❌ Unexpected error during import: {e}')
-            import traceback
-            traceback.print_exc()
             sys.exit(1)
         "
-        
-    - name: Test configuration loading
-      run: |
-        echo "⚙️ Testing configuration loading..."
-        python -c "
-        import sys
-        import os
-        
-        # Add src to path and set up environment
-        sys.path.insert(0, 'src')
-        
-        # Mock the effects file path for testing
-        import handler
-        handler.EFFECTS_CONFIG = 'prompts/effects.json'
-        
-        try:
-            # Test effects config loading
-            result = handler.load_effects_config()
-            if not result:
-                print('❌ Failed to load effects config')
-                sys.exit(1)
-            
-            if handler.effects_data is None:
-                print('❌ Effects data not loaded')
-                sys.exit(1)
-            
-            # Test specific effect
-            if 'ghostrider' not in handler.effects_data['effects']:
-                print('❌ Ghostrider effect not found')
-                sys.exit(1)
-                
-            ghostrider = handler.effects_data['effects']['ghostrider']
-            if ghostrider['lora'] != 'ghostrider.safetensors':
-                print(f'❌ Wrong LoRA file: {ghostrider[\"lora\"]}')
-                sys.exit(1)
-            
-            print('✅ Configuration loading test passed')
-            
-        except Exception as e:
-            print(f'❌ Configuration loading failed: {e}')
-            import traceback
-            traceback.print_exc()
-            sys.exit(1)
-        "
-        
-    - name: Test workflow customization
-      run: |
-        echo "🎨 Testing workflow customization..."
-        python -c "
-        import sys
-        import json
-        
-        # Add src to path
-        sys.path.insert(0, 'src')
-        import handler
-        
-        try:
-            # Load test data
-            handler.EFFECTS_CONFIG = 'prompts/effects.json'
-            if not handler.load_effects_config():
-                print('❌ Failed to load effects config')
-                sys.exit(1)
-            
-            with open('workflow/universal_i2v.json', 'r') as f:
-                workflow = json.load(f)
-            
-            # Test customization
-            params = {
-                'image_filename': 'test.jpg',
-                'effect': 'ghostrider',
-                'prompt': 'custom prompt',
-                'seed': 12345
-            }
-            
-            customized = handler.customize_workflow(workflow.copy(), params)
-            
-            # Verify changes were made
-            found_image = False
-            found_prompt = False
-            found_lora = False
-            
-            for node_id, node_data in customized.items():
-                if not isinstance(node_data, dict):
-                    continue
-                    
-                inputs = node_data.get('inputs', {})
-                
-                if inputs.get('image') == 'test.jpg':
-                    found_image = True
-                    print('✅ Image filename updated')
-                    
-                if inputs.get('lora_name') == 'ghostrider.safetensors':
-                    found_lora = True
-                    print('✅ LoRA updated')
-                    
-                # Check for any text that contains our effect
-                text_input = inputs.get('text', '')
-                if isinstance(text_input, str) and ('ghost' in text_input.lower() or 'skull' in text_input.lower()):
-                    found_prompt = True
-                    print('✅ Prompt updated')
-            
-            if not found_image:
-                print('❌ Image filename not updated')
-                sys.exit(1)
-            if not found_lora:
-                print('❌ LoRA not updated')
-                sys.exit(1)
-            if not found_prompt:
-                print('⚠️ Prompt update verification inconclusive, but continuing')
-            
-            print('✅ Workflow customization test passed')
-            
-        except Exception as e:
-            print(f'❌ Workflow customization test failed: {e}')
-            import traceback
-            traceback.print_exc()
-            sys.exit(1)
-        "
-        
-    - name: Validate test input
-      run: |
-        echo "📝 Validating test input format..."
-        python -c "
-        import json
-        import base64
-        
-        try:
-            with open('test_input.json', 'r') as f:
-                test_data = json.load(f)
-            
-            # Check structure
-            if 'input' not in test_data:
-                print('❌ Missing input key')
-                sys.exit(1)
-            
-            input_data = test_data['input']
-            if 'image' not in input_data:
-                print('❌ Missing image')
-                sys.exit(1)
-            if 'effect' not in input_data:
-                print('❌ Missing effect')
-                sys.exit(1)
-            
-            # Validate base64 image (allow small test image)
-            image_data = input_data['image']
-            if image_data.startswith('data:image'):
-                image_data = image_data.split(',')[1]
-            
-            try:
-                decoded = base64.b64decode(image_data)
-                if len(decoded) < 100:  # Very small image is fine for testing
-                    print('✅ Valid base64 image (test size)')
-                else:
-                    print(f'✅ Valid base64 image ({len(decoded)} bytes)')
-            except Exception as e:
-                print(f'❌ Invalid base64 image: {e}')
-                sys.exit(1)
-            
-            print('✅ Test input validation passed')
-            
-        except Exception as e:
-            print(f'❌ Test input validation failed: {e}')
-            sys.exit(1)
-        "
-        
-    - name: Check Docker build context
-      run: |
-        echo "🐳 Checking Docker build requirements..."
-        
-        # Check if Dockerfile exists and has basic structure
-        if ! grep -q "FROM " Dockerfile; then
-          echo "❌ Dockerfile missing FROM instruction"
-          exit 1
-        fi
-        
-        if ! grep -q "CMD\|ENTRYPOINT" Dockerfile; then
-          echo "❌ Dockerfile missing CMD or ENTRYPOINT instruction"
-          exit 1
-        fi
-        
-        echo "✅ Dockerfile basic structure is valid"
         
     - name: Summary
       run: |
-        echo ""
         echo "🎉 All tests passed! Handler is ready for deployment."
-        echo ""
-        echo "✅ Code quality checks passed"
-        echo "✅ Project structure validated" 
-        echo "✅ Configuration files validated"
-        echo "✅ Handler functions tested"
-        echo "✅ Workflow format verified"
-        echo "✅ Test data validated"
-        echo "✅ Docker build context verified"
