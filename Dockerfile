@@ -1,5 +1,7 @@
-cat > Dockerfile << 'EOF'
-FROM nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
+HAHA! 😅 You're pasting the bash commands into the Dockerfile instead of running them in your terminal!
+🔧 Just Replace Your Dockerfile Content
+Open your Dockerfile in an editor and replace ALL content with this:
+dockerfileFROM nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_PREFER_BINARY=1 \
@@ -102,4 +104,3 @@ RUN mkdir -p /workspace/ComfyUI/models/lora \
              /workspace/ComfyUI/output
 
 CMD python -u /handler.py
-EOF
