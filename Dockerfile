@@ -1,17 +1,18 @@
-FROM runpod/pytorch:2.8.0-py3.11-cuda12.8.1-cudnn-devel-ubuntu
+FROM nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04 AS base
 
-# Set environment variables (simplified, no venv confusion)
+# Consolidated environment variables
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_PREFER_BINARY=1 \
     PYTHONUNBUFFERED=1 \
     COMFYUI_PATH="/workspace/ComfyUI"
 
-# Set python3.11 as default
-RUN ln -sf $(which python3.11) /usr/local/bin/python && \
-    ln -sf $(which python3.11) /usr/local/bin/python3
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+# Install system dependencies with cache mount for faster builds
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+    python3.12 \
+    python3.12-pip \
+    python3.12-dev \
+    python3.12-venv \
     git \
     wget \
     curl \
@@ -22,20 +23,32 @@ RUN apt-get update && apt-get install -y \
     libxext6 \
     libxrender-dev \
     libgomp1 \
-    && rm -rf /var/lib/apt/lists/*
+    && ln -sf /usr/bin/python3.12 /usr/bin/python \
+    && ln -sf /usr/bin/python3.12 /usr/bin/python3 \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Create workspace
-RUN mkdir -p /workspace
+# Create virtual environment for better isolation
+RUN python3.12 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
-# Install Python dependencies (no venv confusion)
+# Install core Python dependencies with cache
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip setuptools wheel
+
+# Install your requirements with cache
 COPY requirements.txt /requirements.txt
-RUN uv pip install --upgrade -r /requirements.txt --no-cache-dir --system
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -r /requirements.txt --no-cache-dir
 
 # Copy and run build scripts
 COPY builder/ /builder/
 RUN python /builder/install_comfyui.py && \
     python /builder/setup_custom_nodes.py && \
     python /builder/download_models.py
+
+FROM base AS final
+# Ensure virtual environment is used
+ENV PATH="/opt/venv/bin:$PATH"
 
 # Copy universal workflow
 COPY workflow/ /workspace/ComfyUI/workflow/
@@ -52,5 +65,5 @@ COPY src/handler.py /handler.py
 # Set working directory
 WORKDIR /workspace
 
-# Start the worker (RunPod standard with -u flag)
+# Start the worker
 CMD python -u /handler.py
