@@ -128,13 +128,13 @@ jobs:
       run: |
         echo "🧪 Testing built Docker image..."
         
-        # Get the built image tag
-        IMAGE_TAG="${{ steps.meta.outputs.tags }}" | head -1
+        # Get the first built image tag
+        IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -1)
         
         # Test that image runs and shows expected output
         timeout 300 docker run --rm $IMAGE_TAG python -c "
         import sys
-        sys.path.append('/src')
+        sys.path.append('/workspace')
         
         # Test imports
         try:
@@ -148,6 +148,7 @@ jobs:
         
         # Test handler import
         try:
+            sys.path.append('/workspace/src')
             from handler import handler, load_effects_config
             print('✅ Handler imports successfully')
         except ImportError as e:
@@ -161,7 +162,7 @@ jobs:
       run: |
         echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Image:** \`${{ steps.meta.outputs.tags }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "**Image:** \`$(echo "${{ steps.meta.outputs.tags }}" | head -1)\`" >> $GITHUB_STEP_SUMMARY
         echo "**Digest:** \`${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
         echo "**Platform:** \`linux/amd64\`" >> $GITHUB_STEP_SUMMARY
         echo "**Registry:** \`${{ env.REGISTRY }}\`" >> $GITHUB_STEP_SUMMARY
@@ -174,7 +175,7 @@ jobs:
         echo "### 🎯 RunPod Deployment" >> $GITHUB_STEP_SUMMARY
         echo "Use this image in RunPod:" >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-        echo "${{ steps.meta.outputs.tags }}" | head -1 >> $GITHUB_STEP_SUMMARY
+        echo "$(echo "${{ steps.meta.outputs.tags }}" | head -1)" >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
         
   security-scan:
@@ -205,7 +206,7 @@ jobs:
       
     steps:
     - name: Deploy to RunPod (Webhook)
-      if: secrets.RUNPOD_WEBHOOK_URL
+      if: ${{ secrets.RUNPOD_WEBHOOK_URL }}
       run: |
         echo "🚀 Triggering RunPod deployment..."
         
@@ -231,7 +232,7 @@ jobs:
         || echo "❌ RunPod deployment failed"
         
     - name: Update endpoint template
-      if: secrets.RUNPOD_API_KEY && github.ref == 'refs/heads/main'
+      if: ${{ secrets.RUNPOD_API_KEY && github.ref == 'refs/heads/main' }}
       run: |
         echo "📝 Updating RunPod endpoint template..."
         
@@ -256,7 +257,7 @@ jobs:
     - name: Notify deployment status
       run: |
         if [ "${{ needs.build-and-push.result }}" == "success" ]; then
-          echo "✅ Build successful: ${{ needs.build-and-push.outputs.image-tag }}"
+          echo "✅ Build successful: $(echo "${{ needs.build-and-push.outputs.image-tag }}" | head -1)"
         else
           echo "❌ Build failed"
         fi
