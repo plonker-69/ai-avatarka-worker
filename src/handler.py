@@ -159,8 +159,8 @@ def customize_workflow(workflow: Dict, params: Dict) -> Dict:
             
             # Update WanVideoLoraSelect (Node 41) - replace PLACEHOLDER_LORA
             elif class_type == "WanVideoLoraSelect":
-                if inputs.get("lora") == "PLACEHOLDER_LORA":
-                    inputs["lora"] = effect_config["lora"]
+                if inputs.get("lora_name") == "PLACEHOLDER_LORA":
+                    inputs["lora_name"] = effect_config["lora"]
                     inputs["strength"] = effect_config.get("lora_strength", 1.0)
                     logger.info(f"✅ Updated LoRA: {effect_config['lora']} (strength: {inputs['strength']})")
             
