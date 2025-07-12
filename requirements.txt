@@ -1,11 +1,45 @@
-# Minimal additional requirements for AI-Avatarka
-# Base image already has torch, torchvision, ComfyUI, etc.
-
 # RunPod serverless
 runpod~=1.7.9
 
-# Only add what's missing from base image
-aiofiles>=23.0.0
+# Deep Learning & AI (HEAVY)
+torch>=2.0.1              # ~2GB
+torchvision>=0.15.0        # ~500MB
+torchaudio>=2.0.0         # ~300MB
+xformers>=0.0.22          # ~500MB
+diffusers>=0.18.0         # ~200MB
+transformers>=4.30.0      # ~500MB
+accelerate>=0.20.0        # ~100MB
 
-# For Google Drive downloads (if not in base)
-gdown>=5.0.0
+# Image/Video Processing (HEAVY)
+opencv-python-headless>=4.8.0  # ~300MB
+pillow>=10.0.0            # ~10MB
+numpy>=1.24.0             # ~50MB
+imageio>=2.31.0           # ~20MB
+imageio-ffmpeg>=0.4.8     # ~50MB
+av>=10.0.0                # ~100MB
+
+# Audio Processing
+soundfile>=0.12.0         # ~50MB
+librosa>=0.10.0           # ~100MB
+
+# Scientific Computing (HEAVY)
+scipy>=1.11.0             # ~200MB
+scikit-image>=0.21.0      # ~150MB
+matplotlib>=3.7.0         # ~100MB
+
+# ComfyUI Dependencies
+safetensors>=0.3.0        # ~20MB
+omegaconf>=2.3.0          # ~5MB
+einops>=0.6.0             # ~5MB
+kornia>=0.7.0             # ~100MB
+
+# Web & Async
+aiohttp>=3.8.0            # ~10MB
+aiofiles>=23.0.0          # ~5MB
+websocket-client>=1.6.0   # ~5MB
+requests>=2.31.0          # ~5MB
+
+# System Utilities
+psutil>=5.9.0             # ~5MB
+
+# TOTAL: ~5GB+ installed size

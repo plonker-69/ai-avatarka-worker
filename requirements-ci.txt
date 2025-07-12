@@ -1,0 +1,14 @@
+# Testing frameworks
+pytest>=7.0.0            # ~5MB
+black>=22.0.0             # ~5MB
+flake8>=5.0.0             # ~5MB
+
+# Basic dependencies for handler validation
+pillow>=10.0.0            # ~10MB (for basic image handling)
+requests>=2.31.0          # ~5MB (for HTTP requests)
+aiofiles>=23.0.0          # ~5MB (for async file operations)
+
+# RunPod SDK (lightweight, no GPU dependencies)
+runpod~=1.7.9             # ~10MB
+
+# TOTAL: ~45MB installed size
