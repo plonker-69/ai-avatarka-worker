@@ -13,25 +13,30 @@ RUN apt-get update && \
 
 WORKDIR /workspace
 
-# Install basic requirements only
-RUN pip install --upgrade pip && \
-    pip install runpod torch torchvision torchaudio \
-                pillow numpy requests websocket-client \
-                aiohttp aiofiles
+# Test basic pip functionality
+RUN echo "=== Python Version ===" && \
+    python --version && \
+    echo "=== Pip Version ===" && \
+    pip --version
 
-# Install ComfyUI - minimal setup
-RUN git clone https://github.com/comfyanonymous/ComfyUI.git && \
-    cd ComfyUI && \
-    pip install -r requirements.txt
+# Install packages one by one to see which fails
+RUN echo "=== Installing pip upgrade ===" && \
+    pip install --upgrade pip
 
-# Copy your handler and configs
-COPY src/handler.py /handler.py
-COPY prompts/ /workspace/prompts/
-COPY workflow/ /workspace/ComfyUI/workflow/
+RUN echo "=== Installing runpod ===" && \
+    pip install runpod
 
-# Create basic directories
-RUN mkdir -p /workspace/ComfyUI/models/lora \
-             /workspace/ComfyUI/input \
-             /workspace/ComfyUI/output
+RUN echo "=== Installing basic packages ===" && \
+    pip install pillow numpy requests
 
-CMD python -u /handler.py
+RUN echo "=== Installing PyTorch (this might fail) ===" && \
+    pip install torch torchvision torchaudio \
+    --index-url https://download.pytorch.org/whl/cu121 || \
+    echo "PyTorch install failed, trying different version..."
+
+# If PyTorch fails, try CPU version as fallback
+RUN pip list | grep torch || \
+    (echo "Installing CPU PyTorch as fallback..." && \
+     pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu)
+
+CMD echo "Build completed - check which packages installed successfully"
