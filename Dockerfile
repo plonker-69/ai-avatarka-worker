@@ -6,37 +6,46 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        python3.12 python3-pip python3.12-dev \
-        git wget curl && \
-    ln -sf /usr/bin/python3.12 /usr/bin/python && \
+        python3.12 python3.12-venv python3.12-dev \
+        python3-pip \
+        git wget curl ffmpeg \
+        libgl1 libglib2.0-0 libsm6 libxext6 && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# THE KEY FIX: Create and use virtual environment
+RUN python3.12 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Now pip will work!
+RUN pip install --upgrade pip
 
 WORKDIR /workspace
 
-# Test basic pip functionality
-RUN echo "=== Python Version ===" && \
-    python --version && \
-    echo "=== Pip Version ===" && \
-    pip --version
+# Install packages (now using venv pip)
+RUN pip install runpod pillow numpy requests websocket-client \
+                aiohttp aiofiles safetensors transformers
 
-# Install packages one by one to see which fails
-RUN echo "=== Installing pip upgrade ===" && \
-    pip install --upgrade pip
+# Install PyTorch with CUDA 12.1 support (works with 12.8.1 runtime)
+RUN pip install torch torchvision torchaudio \
+    --index-url https://download.pytorch.org/whl/cu121
 
-RUN echo "=== Installing runpod ===" && \
-    pip install runpod
+# Install ComfyUI
+RUN git clone https://github.com/comfyanonymous/ComfyUI.git && \
+    cd ComfyUI && \
+    pip install -r requirements.txt
 
-RUN echo "=== Installing basic packages ===" && \
-    pip install pillow numpy requests
+# Copy your files
+COPY src/handler.py /handler.py
+COPY prompts/ /workspace/prompts/
+COPY workflow/ /workspace/ComfyUI/workflow/
 
-RUN echo "=== Installing PyTorch (this might fail) ===" && \
-    pip install torch torchvision torchaudio \
-    --index-url https://download.pytorch.org/whl/cu121 || \
-    echo "PyTorch install failed, trying different version..."
+# Create directories
+RUN mkdir -p /workspace/ComfyUI/models/lora \
+             /workspace/ComfyUI/models/checkpoints \
+             /workspace/ComfyUI/models/vae \
+             /workspace/ComfyUI/models/text_encoders \
+             /workspace/ComfyUI/models/clip_vision \
+             /workspace/ComfyUI/input \
+             /workspace/ComfyUI/output
 
-# If PyTorch fails, try CPU version as fallback
-RUN pip list | grep torch || \
-    (echo "Installing CPU PyTorch as fallback..." && \
-     pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu)
-
-CMD echo "Build completed - check which packages installed successfully"
+CMD python -u /handler.py
