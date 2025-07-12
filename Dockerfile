@@ -1,4 +1,4 @@
-FROM runpod/base:0.7.2-cuda12.8.0
+FROM runpod/pytorch:2.8.0-py3.11-cuda12.8.1-cudnn-devel-ubuntu
 
 # Set environment variables (simplified, no venv confusion)
 ENV DEBIAN_FRONTEND=noninteractive \
