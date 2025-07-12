@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
 AI-Avatarka Model Download Script
-Downloads Wan 2.1 models and dependencies for ComfyUI
+Downloads Wan 2.1 models and LoRA files for ComfyUI
 """
 
 import os
 import sys
 import urllib.request
 import urllib.error
+import subprocess
 from pathlib import Path
 import hashlib
 import time
@@ -59,6 +60,27 @@ MODELS_CONFIG = {
     }
 }
 
+# LoRA files configuration with Google Drive IDs
+LORA_FILES = {
+    "ghostrider.safetensors": "1fr-o0SOF2Ekqjjv47kXwpbtTyQ4bX67Q",
+    "son_goku.safetensors": "1DQFMntN2D-7kGm5myeRzFXqW9TdckIen", 
+    "westworld.safetensors": "1tK17DuwniI6wrFhPuoeBIb1jIdnn6xZv",
+    "hulk.safetensors": "1LC-OF-ytSy9vnAkJft5QfykIW-qakrJg",
+    "super_saian.safetensors": "1DdUdskRIFgb5td_DAsrRIJwdrK5DnkMZ",
+    "jumpscare.safetensors": "15oW0m7sudMBpoGGREHjZAtC92k6dspWq",
+    "kamehameha.safetensors": "1c9GAVuwUYdoodAcU5svvEzHzsJuE19mi",
+    "melt_it.safetensors": "139fvofiYDVZGGTHDUsBrAbzNLQ0TFKJf",
+    "mindblown.safetensors": "15Q3lQ9U_0TwWgf8pNmovuHB1VOo7js3A",
+    "muscles.safetensors": "1_FxWR_fZnWaI3Etxr19BAfJGUtqLHz88",
+    "crush_it.safetensors": "1q_xAeRppHGc3caobmAk4Cpi-3PBJA97i",
+    "samurai.safetensors": "1-N3XS5wpRcI95BJUnRr3PnMp7oCVAF3u",
+    "fus_ro_dah.safetensors": "1-ruIAhaVzHPCERvh6cFY-s1b-s5dxmRA",
+    "360.safetensors": "1S637vBYR21UKmTM3KI-S2cxrwKu3GDDR",
+    "vip_50_epochs.safetensors": "1NcnSdMO4zew5078T3aQTK9cfxcnoMtjN",
+    "puppy.safetensors": "1DZokL-bwacMIggimUlj2LAme_f4pOWdv",
+    "snow_white.safetensors": "1geUbpu-Q-N4VxM6ncbC2-Y9Tidqbpt8D"
+}
+
 def print_info(message):
     """Print info message with timestamp"""
     print(f"[INFO] {message}")
@@ -71,6 +93,18 @@ def print_warning(message):
     """Print warning message with timestamp"""
     print(f"[WARNING] {message}")
 
+def install_gdown():
+    """Install gdown for Google Drive downloads"""
+    try:
+        import gdown
+        print_info("gdown already installed")
+        return gdown
+    except ImportError:
+        print_info("Installing gdown for Google Drive downloads...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "gdown"])
+        import gdown
+        return gdown
+
 def create_directories():
     """Create necessary model directories"""
     base_path = Path("/workspace/ComfyUI/models")
@@ -79,7 +113,8 @@ def create_directories():
         "diffusion_models",
         "vae", 
         "text_encoders",
-        "clip_vision"
+        "clip_vision",
+        "loras"  # Added LoRA directory
     ]
     
     for directory in directories:
@@ -93,15 +128,18 @@ def check_disk_space():
         stat = os.statvfs("/workspace")
         available_gb = (stat.f_bavail * stat.f_frsize) / (1024**3)
         
-        # Calculate total required space
+        # Calculate total required space (base models + LoRAs)
         total_required = 0
         for category in MODELS_CONFIG.values():
             for model_info in category.values():
                 if model_info["required"]:
                     total_required += model_info["size_gb"]
         
+        # Add space for LoRA files (~1.7GB for 17 files)
+        total_required += 2.0  # Extra buffer for LoRAs
+        
         print_info(f"Available disk space: {available_gb:.1f} GB")
-        print_info(f"Required space for models: {total_required:.1f} GB")
+        print_info(f"Required space (models + LoRAs): {total_required:.1f} GB")
         
         if available_gb < total_required + 5:  # 5GB buffer
             print_warning(f"Low disk space! Available: {available_gb:.1f}GB, Required: {total_required:.1f}GB")
@@ -165,6 +203,63 @@ def download_with_progress(url, filepath, expected_size_gb=None):
         print_error(f"Unexpected error downloading {url}: {e}")
         return False
 
+def download_from_gdrive(file_id, destination, filename):
+    """Download file from Google Drive using gdown"""
+    gdown = install_gdown()
+    
+    print_info(f"Downloading {filename} from Google Drive...")
+    
+    # Google Drive direct download URL
+    url = f"https://drive.google.com/uc?id={file_id}"
+    
+    try:
+        gdown.download(url, str(destination), quiet=False)
+        
+        # Verify download
+        if destination.exists():
+            size_mb = destination.stat().st_size / (1024 * 1024)
+            print_info(f"Downloaded successfully: {filename} ({size_mb:.1f} MB)")
+            return True
+        else:
+            print_error(f"Download failed: {filename} - file not found after download")
+            return False
+            
+    except Exception as e:
+        print_error(f"Failed to download {filename}: {str(e)}")
+        return False
+
+def download_lora_files():
+    """Download all LoRA files from Google Drive"""
+    lora_path = Path("/workspace/ComfyUI/models/loras")
+    success_count = 0
+    failure_count = 0
+    skipped_count = 0
+    
+    print_info("\n=== Downloading LoRA files from Google Drive ===")
+    
+    for filename, file_id in LORA_FILES.items():
+        filepath = lora_path / filename
+        
+        # Check if file already exists with reasonable size
+        if filepath.exists() and filepath.stat().st_size > 1024 * 1024:  # > 1MB
+            existing_size = filepath.stat().st_size / (1024 * 1024)
+            print_info(f"Skipping {filename} (already exists, {existing_size:.1f}MB)")
+            skipped_count += 1
+            continue
+        
+        # Download from Google Drive
+        if download_from_gdrive(file_id, filepath, filename):
+            success_count += 1
+        else:
+            failure_count += 1
+    
+    print_info(f"\n=== LoRA Download Summary ===")
+    print_info(f"Successful: {success_count}")
+    print_info(f"Failed: {failure_count}")
+    print_info(f"Skipped: {skipped_count}")
+    
+    return failure_count == 0
+
 def download_models():
     """Download all required models"""
     base_path = Path("/workspace/ComfyUI/models")
@@ -172,7 +267,7 @@ def download_models():
     failure_count = 0
     skipped_count = 0
     
-    print_info("Starting model downloads...")
+    print_info("Starting base model downloads...")
     
     for category, models in MODELS_CONFIG.items():
         print_info(f"\n=== Downloading {category} models ===")
@@ -205,7 +300,7 @@ def download_models():
                 else:
                     print_warning(f"Failed to download optional model: {filename}")
     
-    print_info(f"\n=== Download Summary ===")
+    print_info(f"\n=== Base Model Download Summary ===")
     print_info(f"Successful: {success_count}")
     print_info(f"Failed: {failure_count}")
     print_info(f"Skipped: {skipped_count}")
@@ -221,12 +316,12 @@ def download_models():
                     missing_required.append(f"{category}/{filename}")
     
     if missing_required:
-        print_error("Missing required models:")
+        print_error("Missing required base models:")
         for model in missing_required:
             print_error(f"  - {model}")
         return False
     
-    print_info("All required models downloaded successfully!")
+    print_info("All required base models downloaded successfully!")
     return True
 
 def verify_models():
@@ -234,6 +329,7 @@ def verify_models():
     print_info("Verifying model files...")
     base_path = Path("/workspace/ComfyUI/models")
     
+    # Verify base models
     for category, models in MODELS_CONFIG.items():
         category_path = base_path / category
         for filename, model_info in models.items():
@@ -252,7 +348,24 @@ def verify_models():
                     print_error(f"Cannot read model file {filename}: {e}")
                     return False
     
-    print_info("All required models verified!")
+    # Verify LoRA files
+    lora_path = base_path / "loras"
+    lora_count = 0
+    for filename in LORA_FILES.keys():
+        filepath = lora_path / filename
+        if filepath.exists():
+            try:
+                with open(filepath, 'rb') as f:
+                    f.read(1024)
+                lora_count += 1
+                print_info(f"Verified LoRA: {filename}")
+            except Exception as e:
+                print_warning(f"Cannot read LoRA file {filename}: {e}")
+        else:
+            print_warning(f"LoRA file missing: {filename}")
+    
+    print_info(f"Verified {lora_count}/{len(LORA_FILES)} LoRA files")
+    print_info("Model verification completed!")
     return True
 
 def main():
@@ -268,17 +381,22 @@ def main():
         # Create directories
         create_directories()
         
-        # Download models
+        # Download base models
+        print_info("\n🔄 Phase 1: Downloading base models...")
         if not download_models():
-            print_error("Model download failed!")
+            print_error("Base model download failed!")
             sys.exit(1)
+        
+        # Download LoRA files
+        print_info("\n🎭 Phase 2: Downloading LoRA files...")
+        if not download_lora_files():
+            print_warning("Some LoRA files failed to download, but continuing...")
         
         # Verify models
-        if not verify_models():
-            print_error("Model verification failed!")
-            sys.exit(1)
+        print_info("\n🔍 Phase 3: Verifying downloads...")
+        verify_models()
         
-        print_info("Model download completed successfully!")
+        print_info("\n🎉 Model download completed successfully!")
         
     except KeyboardInterrupt:
         print_error("Download interrupted by user")
