@@ -40,11 +40,36 @@
         { "value": "snow_white", "label": "🍎 Snow White - Disney princess" }
       ]
     },
-
-
-
-
-
+    "steps": {
+      "env_var_name": "STEPS",
+      "value": 10,
+      "title": "Generation Steps",
+      "description": "Number of sampling steps (10-50). Higher = better quality but slower",
+      "required": false,
+      "type": "number",
+      "min": 5,
+      "max": 50
+    },
+    "cfg": {
+      "env_var_name": "CFG",
+      "value": 6,
+      "title": "CFG Scale",
+      "description": "Guidance scale (1-15). Higher = follows prompt more closely",
+      "required": false,
+      "type": "number",
+      "min": 1,
+      "max": 15
+    },
+    "seed": {
+      "env_var_name": "SEED",
+      "value": -1,
+      "title": "Seed",
+      "description": "Random seed for reproducible results. Use -1 for random",
+      "required": false,
+      "type": "number",
+      "min": -1,
+      "max": 4294967295
+    }
   },
   "versions": {
     "1.0.0": {
@@ -55,6 +80,11 @@
           "title": "🎭 Transform Your Avatar",
           "description": "Upload your photo and choose your epic transformation",
           "settings": ["image", "effect"]
+        },
+        {
+          "title": "⚙️ Advanced Settings",
+          "description": "Fine-tune generation parameters (optional)",
+          "settings": ["steps", "cfg", "seed"]
         }
       ]
     }

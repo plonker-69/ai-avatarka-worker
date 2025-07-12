@@ -205,8 +205,24 @@ jobs:
       name: ${{ github.event.inputs.environment || 'development' }}
       
     steps:
+    - name: Check RunPod configuration
+      id: check-runpod
+      run: |
+        # Check if RunPod secrets are configured
+        if [ -n "${{ secrets.RUNPOD_WEBHOOK_URL }}" ]; then
+          echo "webhook_configured=true" >> $GITHUB_OUTPUT
+        else
+          echo "webhook_configured=false" >> $GITHUB_OUTPUT
+        fi
+        
+        if [ -n "${{ secrets.RUNPOD_API_KEY }}" ]; then
+          echo "api_configured=true" >> $GITHUB_OUTPUT
+        else
+          echo "api_configured=false" >> $GITHUB_OUTPUT
+        fi
+      
     - name: Deploy to RunPod (Webhook)
-      if: ${{ secrets.RUNPOD_WEBHOOK_URL }}
+      if: steps.check-runpod.outputs.webhook_configured == 'true'
       run: |
         echo "🚀 Triggering RunPod deployment..."
         
@@ -232,7 +248,7 @@ jobs:
         || echo "❌ RunPod deployment failed"
         
     - name: Update endpoint template
-      if: ${{ secrets.RUNPOD_API_KEY && github.ref == 'refs/heads/main' }}
+      if: steps.check-runpod.outputs.api_configured == 'true' && github.ref == 'refs/heads/main'
       run: |
         echo "📝 Updating RunPod endpoint template..."
         
@@ -247,6 +263,18 @@ jobs:
           "https://api.runpod.ai/graphql" \
         && echo "✅ Template updated" \
         || echo "⚠️ Template update failed (manual update required)"
+        
+    - name: Deployment status
+      run: |
+        echo "📊 Deployment Configuration Status:"
+        echo "- Webhook configured: ${{ steps.check-runpod.outputs.webhook_configured }}"
+        echo "- API key configured: ${{ steps.check-runpod.outputs.api_configured }}"
+        echo ""
+        echo "To enable automatic deployment:"
+        echo "1. Add RUNPOD_API_KEY to repository secrets"
+        echo "2. Add RUNPOD_WEBHOOK_URL to repository secrets (optional)"
+        echo ""
+        echo "🎯 Built image: $(echo "${{ needs.build-and-push.outputs.image-tag }}" | head -1)"
         
   notify:
     runs-on: ubuntu-latest
