@@ -1,53 +1,63 @@
-FROM nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
+# Build stage
+FROM nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04 AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install build dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        python3.12 python3.12-venv python3-pip git && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Create virtual environment
+RUN python3.12 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Install Python packages
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir \
+        runpod torch torchvision torchaudio \
+        --index-url https://download.pytorch.org/whl/cu121 && \
+    pip install --no-cache-dir \
+        pillow numpy requests websocket-client aiohttp aiofiles safetensors transformers
+
+# Install ComfyUI
+RUN git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git /tmp/ComfyUI && \
+    cd /tmp/ComfyUI && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Runtime stage
+FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_PREFER_BINARY=1 \
     PYTHONUNBUFFERED=1
 
+# Install minimal runtime dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        python3.12 python3.12-venv python3.12-dev \
-        python3-pip \
-        git wget curl ffmpeg \
-        libgl1 libglib2.0-0 libsm6 libxext6 && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+        python3.12 \
+        libgl1 libglib2.0-0 && \
+    apt-get clean && \
+    apt-get autoremove -y && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# Create virtual environment (the key fix from working system analysis)
-RUN python3.12 -m venv /opt/venv
+# Copy virtual environment from builder
+COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
+# Copy ComfyUI
+COPY --from=builder /tmp/ComfyUI /workspace/ComfyUI
+
 WORKDIR /workspace
-
-# Upgrade pip first
-RUN pip install --upgrade pip
-
-# Install basic packages
-RUN pip install runpod pillow numpy requests websocket-client \
-                aiohttp aiofiles safetensors transformers
-
-# Use STABLE PyTorch with CUDA 12.1 (works perfectly with 12.8.1 runtime)
-RUN pip install torch torchvision torchaudio \
-    --index-url https://download.pytorch.org/whl/cu121
-
-# Verify it works
-RUN python -c "import torch; print(f'PyTorch: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}'); print(f'CUDA version: {torch.version.cuda}')"
-
-# Install ComfyUI
-RUN git clone https://github.com/comfyanonymous/ComfyUI.git && \
-    cd ComfyUI && \
-    pip install -r requirements.txt
 
 # Copy your files
 COPY src/handler.py /handler.py
 COPY prompts/ /workspace/prompts/
 COPY workflow/ /workspace/ComfyUI/workflow/
 
-# Create directories
+# Create minimal directories
 RUN mkdir -p /workspace/ComfyUI/models/lora \
-             /workspace/ComfyUI/models/checkpoints \
-             /workspace/ComfyUI/models/vae \
-             /workspace/ComfyUI/models/text_encoders \
-             /workspace/ComfyUI/models/clip_vision \
              /workspace/ComfyUI/input \
              /workspace/ComfyUI/output
 
