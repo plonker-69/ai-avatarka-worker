@@ -1,5 +1,5 @@
 """
-AI-Avatarka RunPod Serverless Worker Handler - COMPLETE FIXED VERSION
+AI-Avatarka RunPod Serverless Worker Handler
 Transforms images into videos using Wan 2.1 with different effects.
 """
 
@@ -128,7 +128,7 @@ def process_input_image(image_data: str) -> Optional[str]:
         return None
 
 def customize_workflow(workflow: Dict, params: Dict) -> Dict:
-    """Customize workflow with user parameters - FIXED VERSION"""
+    """Customize workflow with user parameters"""
     try:
         effect = params.get("effect", "ghostrider")
         effect_config = effects_data["effects"].get(effect, effects_data["effects"]["ghostrider"])
