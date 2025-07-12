@@ -21,23 +21,26 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       
-    - name: Free up disk space
+    - name: Free up disk space (safe)
       run: |
         echo "=== Before cleanup ==="
         df -h
         
-        # Remove unnecessary packages
-        sudo apt-get remove -y '^dotnet-.*' '^llvm-.*' 'php.*' '^mongodb-.*' '^mysql-.*' azure-cli google-cloud-cli hhvm google-chrome-stable firefox powershell mono-devel libgl1-mesa-dri
-        sudo apt-get autoremove -y
-        sudo apt-get clean
+        # Only remove what actually exists
+        echo "=== Cleaning package cache ==="
+        sudo apt-get clean || true
+        sudo apt-get autoremove -y || true
         
-        # Remove large directories
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        sudo rm -rf /usr/local/share/boost /usr/local/graalvm /usr/local/share/chromium
-        sudo rm -rf /usr/share/swift /usr/local/.ghcup
+        echo "=== Removing large directories that exist ==="
+        sudo rm -rf /usr/share/dotnet || true
+        sudo rm -rf /usr/local/lib/android || true  
+        sudo rm -rf /opt/ghc || true
+        sudo rm -rf /opt/hostedtoolcache/CodeQL || true
+        sudo rm -rf /usr/local/share/boost || true
+        sudo rm -rf /usr/local/graalvm || true
         
-        # Clean docker
-        docker system prune -af
+        echo "=== Docker cleanup ==="
+        docker system prune -af || true
         
         echo "=== After cleanup ==="
         df -h
@@ -76,11 +79,11 @@ jobs:
         cache-from: type=gha
         cache-to: type=gha,mode=max
         
-    - name: Basic Security Check (Local)
+    - name: Basic Security Check
       run: |
         echo "🔍 Running basic security checks..."
         
-        # Check for common security issues in Dockerfile
+        # Check Dockerfile practices
         echo "=== Dockerfile Security Analysis ==="
         if grep -q "USER root" Dockerfile 2>/dev/null; then
           echo "⚠️  WARNING: Running as root user"
@@ -94,13 +97,7 @@ jobs:
           echo "⚠️  WARNING: No cache cleanup detected"
         fi
         
-        if grep -q "apt-get.*update.*install.*clean" Dockerfile; then
-          echo "✅ Package manager cleanup found"
-        else
-          echo "⚠️  WARNING: Package manager cleanup missing"
-        fi
-        
-        echo "=== Image Information ==="
+        echo "=== Build Success ==="
         IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -1)
         echo "📦 Built image: $IMAGE_TAG"
         echo "🔗 Digest: ${{ steps.build.outputs.digest }}"
@@ -111,13 +108,7 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "**✅ Build Status:** SUCCESS" >> $GITHUB_STEP_SUMMARY
         echo "**🐳 Image:** \`$(echo "${{ steps.meta.outputs.tags }}" | head -1)\`" >> $GITHUB_STEP_SUMMARY
-        echo "**🔗 Registry:** \`${{ env.REGISTRY }}\`" >> $GITHUB_STEP_SUMMARY
         echo "**📦 Digest:** \`${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 🔒 Security Status" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ Basic Dockerfile security checks passed" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ Image cleanup practices verified" >> $GITHUB_STEP_SUMMARY
-        echo "- 📋 Manual security review recommended for production" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 🎯 RunPod Deployment" >> $GITHUB_STEP_SUMMARY
         echo "Use this image in RunPod:" >> $GITHUB_STEP_SUMMARY
