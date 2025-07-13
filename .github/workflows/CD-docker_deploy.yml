@@ -1,4 +1,4 @@
-name: CD - Build & Deploy (Optimized)
+name: CD - Build with Pre-Downloaded Models
 
 on:
   push:
@@ -9,6 +9,11 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  # Model URLs like hearmeman's buildspec.yml
+  WAN_I2V: https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/diffusion_models/wan2.1_i2v_480p_14B_bf16.safetensors
+  WAN_VAE: https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors
+  WAN_TEXT: https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors
+  WAN_CLIP: https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/clip_vision/clip_vision_h.safetensors
 
 jobs:
   build-and-push:
@@ -19,23 +24,14 @@ jobs:
       
     outputs:
       image-tag: ${{ steps.meta.outputs.tags }}
-      image-digest: ${{ steps.build.outputs.digest }}
       
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
       
-    - name: Check initial disk space
-      run: |
-        echo "📊 Initial disk space:"
-        df -h
-        echo "📦 Largest directories:"
-        sudo du -h /usr/ | sort -hr | head -10 || true
-        
-    - name: Free up disk space
+    - name: Maximize disk space (aggressive cleanup)
       uses: jlumbroso/free-disk-space@main
       with:
-        # Delete tool cache and large packages
         tool-cache: true
         android: true
         dotnet: true
@@ -44,21 +40,49 @@ jobs:
         docker-images: true
         swap-storage: true
         
-    - name: Check disk space after cleanup
+    - name: Check available space after cleanup
       run: |
-        echo "🎯 Disk space after cleanup:"
-        df -h
-        echo "📈 Available space: $(df -h / | awk 'NR==2{print $4}')"
+        echo "📊 Available space after cleanup:"
+        df -h /
+        echo "Available space: $(df -h / | awk 'NR==2{print $4}')"
+      
+    - name: Pre-download models (hearmeman approach)
+      run: |
+        echo "⬇️  Pre-downloading Wan 2.1 models like hearmeman's buildspec.yml"
+        mkdir -p models/diffusion_models models/vae models/text_encoders models/clip_vision
+        
+        # Download main model
+        echo "Downloading I2V model..."
+        wget --progress=dot:giga -O "models/diffusion_models/wan2.1_i2v_480p_14B_bf16.safetensors" "$WAN_I2V" &
+        PID1=$!
+        
+        # Download smaller models in parallel
+        echo "Downloading VAE..."
+        wget --progress=dot:giga -O "models/vae/wan_2.1_vae.safetensors" "$WAN_VAE" &
+        PID2=$!
+        
+        echo "Downloading text encoder..."
+        wget --progress=dot:giga -O "models/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors" "$WAN_TEXT" &
+        PID3=$!
+        
+        echo "Downloading CLIP vision..."
+        wget --progress=dot:giga -O "models/clip_vision/clip_vision_h.safetensors" "$WAN_CLIP" &
+        PID4=$!
+        
+        # Wait for all downloads to complete
+        wait $PID1 $PID2 $PID3 $PID4
+        
+        echo "📦 Model download summary:"
+        ls -lh models/diffusion_models/
+        ls -lh models/vae/
+        ls -lh models/text_encoders/
+        ls -lh models/clip_vision/
+        
+        echo "💾 Total model size:"
+        du -sh models/
         
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
-      with:
-        driver-opts: |
-          image=moby/buildkit:latest
-          network=host
-        buildkitd-flags: |
-          --allow-insecure-entitlement security.insecure
-          --allow-insecure-entitlement network.host
       
     - name: Log in to GitHub Container Registry
       uses: docker/login-action@v3
@@ -78,120 +102,94 @@ jobs:
           type=sha,prefix={{branch}}-,suffix=-{{date 'YYYYMMDD'}}
           type=raw,value=latest,enable={{is_default_branch}}
           
-    - name: Pre-build validation
+    - name: Create optimized Dockerfile
       run: |
-        echo "🔍 Pre-build validation for AI-Avatarka..."
+        cat > Dockerfile.optimized << 'EOF'
+        # Optimized build using pre-downloaded models
+        FROM hearmeman/comfyui-wan-template:v2
         
-        # Validate JSON configurations
-        python -c "
-        import json
+        ENV DEBIAN_FRONTEND=noninteractive \
+            PIP_PREFER_BINARY=1 \
+            PYTHONUNBUFFERED=1 \
+            COMFYUI_PATH="/workspace/ComfyUI"
         
-        try:
-            with open('prompts/effects.json') as f:
-                effects = json.load(f)
-            print('✅ effects.json is valid')
-        except FileNotFoundError:
-            print('⚠️  effects.json not found - will use defaults')
+        # Install minimal dependencies
+        RUN pip install --no-cache-dir runpod~=1.7.9 gdown>=5.0.0
         
-        try:
-            with open('workflow/universal_i2v.json') as f:
-                workflow = json.load(f)
-            print('✅ universal_i2v.json is valid')
-        except FileNotFoundError:
-            print('⚠️  workflow not found - will use defaults')
+        # Copy project files
+        COPY workflow/ /workspace/ComfyUI/workflow/
+        COPY prompts/ /workspace/prompts/
+        COPY src/handler.py /handler.py
         
-        # Check LoRA configurations
-        try:
-            with open('builder/download_models.py') as f:
-                content = f.read()
-                if 'YOUR_' in content and 'GDRIVE_ID' in content:
-                    print('⚠️  Warning: Found placeholder Google Drive IDs')
-                else:
-                    print('✅ Google Drive IDs appear configured')
-        except FileNotFoundError:
-            print('⚠️  download_models.py not found')
-        "
+        # Create model directories
+        RUN mkdir -p /workspace/ComfyUI/models/diffusion_models \
+                     /workspace/ComfyUI/models/vae \
+                     /workspace/ComfyUI/models/text_encoders \
+                     /workspace/ComfyUI/models/clip_vision \
+                     /workspace/ComfyUI/models/loras
         
-    - name: Monitor disk space during build
-      run: |
-        echo "📊 Disk space before Docker build:"
-        df -h
+        # Copy pre-downloaded models
+        COPY models/ /workspace/ComfyUI/models/
         
-        # Start background monitoring
-        (
-          while true; do
-            sleep 60
-            echo "⏰ $(date): $(df -h / | awk 'NR==2{print "Available: " $4 ", Used: " $5}')"
-          done
-        ) &
-        MONITOR_PID=$!
+        # Copy LoRA files
+        COPY lora/ /workspace/ComfyUI/models/loras/
         
-        # Store PID for cleanup
-        echo $MONITOR_PID > /tmp/monitor.pid
+        # Download LoRA files if needed
+        COPY builder/ /builder/
+        RUN python /builder/download_models.py && rm -rf /builder/
         
-    - name: Build and push Docker image (Space Optimized)
+        WORKDIR /workspace
+        CMD ["python", "-u", "/handler.py"]
+        EOF
+        
+    - name: Build and push Docker image
       id: build
       uses: docker/build-push-action@v5
       with:
         context: .
-        file: ./Dockerfile
+        file: ./Dockerfile.optimized
         platforms: linux/amd64
         push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
-        # Caching strategy
         cache-from: type=gha
         cache-to: type=gha,mode=max
-        build-args: |
-          BUILDTIME=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
-          VERSION=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.version'] }}
-          REVISION=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.revision'] }}
-        # Space optimization
+        # Optimize for space
         provenance: false
         sbom: false
-        outputs: type=registry,compression=gzip,compression-level=9
-          
-    - name: Clean up build cache and monitoring
+        
+    - name: Clean up downloaded models
       if: always()
       run: |
-        # Stop monitoring
-        if [ -f /tmp/monitor.pid ]; then
-          kill $(cat /tmp/monitor.pid) || true
-          rm /tmp/monitor.pid
-        fi
+        echo "🧹 Cleaning up pre-downloaded models..."
+        rm -rf models/
+        docker system prune -af || true
         
-        echo "🧹 Final cleanup..."
-        docker system prune -af --volumes || true
-        docker builder prune -af || true
-        
-        echo "📊 Final disk usage:"
-        df -h
-        
-    - name: Test Docker image (lightweight)
+    - name: Test built image
       run: |
-        echo "🧪 Quick Docker image test..."
+        echo "🧪 Testing built image..."
         IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -1)
         
-        # Just test that image exists and basic structure
-        docker pull $IMAGE_TAG
-        docker run --rm --entrypoint="" $IMAGE_TAG ls -la /workspace/ || true
-        docker run --rm --entrypoint="" $IMAGE_TAG python -c "print('✅ Container runs successfully')"
-        
-        echo "✅ Basic Docker image test passed"
+        # Quick test that models are present
+        docker run --rm --entrypoint="" $IMAGE_TAG bash -c "
+        echo '📦 Checking models are present...'
+        ls -la /workspace/ComfyUI/models/diffusion_models/
+        ls -la /workspace/ComfyUI/models/vae/
+        ls -la /workspace/ComfyUI/models/text_encoders/
+        ls -la /workspace/ComfyUI/models/clip_vision/
+        echo '✅ Models check complete'
+        "
         
     - name: Generate deployment summary
       run: |
         echo "## 🚀 AI-Avatarka Deployment Complete!" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Built using hearmeman-inspired pre-download strategy**" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
         echo "**Container Image:**" >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
         echo "${{ steps.meta.outputs.tags }}" | head -1 >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 📊 Build Info" >> $GITHUB_STEP_SUMMARY
-        echo "- **Digest:** \`${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "- **Platform:** \`linux/amd64\`" >> $GITHUB_STEP_SUMMARY
-        echo "- **Registry:** \`${{ env.REGISTRY }}\`" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 🎯 RunPod Setup" >> $GITHUB_STEP_SUMMARY
         echo "1. Go to RunPod Serverless" >> $GITHUB_STEP_SUMMARY
@@ -199,26 +197,3 @@ jobs:
         echo "3. Use the container image above" >> $GITHUB_STEP_SUMMARY
         echo "4. Upload worker-config.json" >> $GITHUB_STEP_SUMMARY
         echo "5. Test with sample input!" >> $GITHUB_STEP_SUMMARY
-
-  security-scan:
-    runs-on: ubuntu-latest
-    needs: build-and-push
-    if: success()
-    steps:
-    - name: Run security scan
-      uses: aquasecurity/trivy-action@master
-      with:
-        image-ref: ${{ needs.build-and-push.outputs.image-tag }}
-        format: 'table'
-        exit-code: '0'  # Don't fail on vulnerabilities, just report
-        
-  deploy-notification:
-    runs-on: ubuntu-latest
-    needs: [build-and-push]
-    if: success() && github.ref == 'refs/heads/main'
-    steps:
-    - name: Notify successful deployment
-      run: |
-        echo "🎉 AI-Avatarka deployment completed successfully!"
-        echo "Image: ${{ needs.build-and-push.outputs.image-tag }}"
-        echo "Ready for RunPod serverless deployment!"
