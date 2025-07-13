@@ -2,9 +2,8 @@
 .git
 .gitignore
 .gitattributes
-.github
 
-# Documentation
+# Documentation  
 README.md
 *.md
 docs/
@@ -30,28 +29,12 @@ env.bak/
 venv.bak/
 .pytest_cache/
 
-# Large files that shouldn't be in build context
-*.safetensors
-*.bin
-*.ckpt
-*.pth
-*.pkl
-*.pt
-
-# Model directories (empty anyway)
-models/
-ComfyUI/
-
 # Logs and temporary files
 *.log
 logs/
 tmp/
 temp/
 *.tmp
-
-# OS files
-.DS_Store
-Thumbs.db
 
 # Build artifacts
 dist/
@@ -66,3 +49,12 @@ test_*
 # Large example files
 examples/
 samples/
+
+# REMOVED: models/ - allowing pre-downloaded models from GitHub Actions
+# REMOVED: *.safetensors - allowing pre-downloaded model files
+# REMOVED: ComfyUI/ - not excluding this
+
+# Only exclude these specific large files if they exist locally
+# (but allow them if created during GitHub Actions)
+local_models/
+*.tmp_download

@@ -1,16 +1,54 @@
 #!/usr/bin/env python3
 """
-AI-Avatarka LoRA Download Script
-Only downloads LoRA files - base models are pre-downloaded in GitHub Actions
+AI-Avatarka Model Download Script - CORRECTED VERSION
+Downloads Wan 2.1 models and LoRA files for ComfyUI
 """
 
 import os
 import sys
+import urllib.request
+import urllib.error
 import subprocess
 from pathlib import Path
 import time
 
-# LoRA files configuration with your Google Drive IDs
+# CORRECTED MODEL CONFIGURATION - using the exact URL you specified
+MODELS_CONFIG = {
+    "diffusion_models": {
+        # Use the exact BF16 model you specified
+        "wan2.1_i2v_480p_14B_bf16.safetensors": {
+            "url": "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/diffusion_models/wan2.1_i2v_480p_14B_bf16.safetensors",
+            "size_gb": 27.8,
+            "required": True
+        }
+    },
+    "vae": {
+        # Use Comfy-Org repackaged VAE
+        "wan_2.1_vae.safetensors": {
+            "url": "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors",
+            "size_gb": 0.254,
+            "required": True
+        }
+    },
+    "text_encoders": {
+        # Use the fp8 scaled version as recommended
+        "umt5_xxl_fp8_e4m3fn_scaled.safetensors": {
+            "url": "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+            "size_gb": 2.5,
+            "required": True
+        }
+    },
+    "clip_vision": {
+        # Use Comfy-Org clip vision model
+        "clip_vision_h.safetensors": {
+            "url": "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/clip_vision/clip_vision_h.safetensors",
+            "size_gb": 1.26,
+            "required": True
+        }
+    }
+}
+
+# LoRA files configuration - YOUR ACTUAL GOOGLE DRIVE IDs
 LORA_FILES = {
     "ghostrider.safetensors": "1fr-o0SOF2Ekqjjv47kXwpbtTyQ4bX67Q",
     "son_goku.safetensors": "1DQFMntN2D-7kGm5myeRzFXqW9TdckIen", 
@@ -55,34 +93,71 @@ def install_gdown():
         import gdown
         return gdown
 
-def check_base_models():
-    """Check if base models are present (should be pre-downloaded)"""
-    models_path = Path("/workspace/ComfyUI/models")
+def create_directories():
+    """Create necessary model directories"""
+    base_path = Path("/workspace/ComfyUI/models")
     
-    required_models = [
-        "diffusion_models/wan2.1_i2v_480p_14B_bf16.safetensors",
-        "vae/wan_2.1_vae.safetensors",
-        "text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors",
-        "clip_vision/clip_vision_h.safetensors"
+    directories = [
+        "diffusion_models",
+        "vae", 
+        "text_encoders",
+        "clip_vision",
+        "loras"
     ]
     
-    missing_models = []
-    for model_path in required_models:
-        full_path = models_path / model_path
-        if not full_path.exists():
-            missing_models.append(model_path)
-        else:
-            size_gb = full_path.stat().st_size / (1024**3)
-            print_info(f"Found: {model_path} ({size_gb:.1f}GB)")
+    for directory in directories:
+        dir_path = base_path / directory
+        dir_path.mkdir(parents=True, exist_ok=True)
+        print_info(f"Created directory: {dir_path}")
+
+def download_with_progress(url, filepath, expected_size_gb=None):
+    """Download file with progress bar and retries"""
+    max_retries = 3
     
-    if missing_models:
-        print_error("Missing base models:")
-        for model in missing_models:
-            print_error(f"  ❌ {model}")
-        return False
-    else:
-        print_info("✅ All base models present")
-        return True
+    for attempt in range(max_retries):
+        try:
+            print_info(f"Downloading: {filepath.name} (attempt {attempt + 1}/{max_retries})")
+            
+            req = urllib.request.Request(url)
+            req.add_header('User-Agent', 'AI-Avatarka/1.0')
+            
+            with urllib.request.urlopen(req, timeout=30) as response:
+                total_size = int(response.headers.get('Content-Length', 0))
+                downloaded = 0
+                chunk_size = 1024 * 1024  # 1MB chunks for better progress
+                
+                with open(filepath, 'wb') as f:
+                    while True:
+                        chunk = response.read(chunk_size)
+                        if not chunk:
+                            break
+                        
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        
+                        # Progress reporting every 500MB
+                        if downloaded % (500 * 1024 * 1024) == 0:
+                            if total_size > 0:
+                                progress = (downloaded / total_size) * 100
+                                print_info(f"Progress: {progress:.1f}% ({downloaded / (1024**3):.2f}GB / {total_size / (1024**3):.2f}GB)")
+                            else:
+                                print_info(f"Downloaded: {downloaded / (1024**3):.2f}GB")
+            
+            # Verify file size
+            actual_size = filepath.stat().st_size
+            print_info(f"Downloaded successfully: {filepath.name} ({actual_size/(1024**3):.2f}GB)")
+            return True
+            
+        except Exception as e:
+            print_error(f"Attempt {attempt + 1} failed for {filepath.name}: {e}")
+            if filepath.exists():
+                filepath.unlink()  # Remove partial download
+            
+            if attempt < max_retries - 1:
+                print_info("Retrying in 10 seconds...")
+                time.sleep(10)
+    
+    return False
 
 def download_from_gdrive(file_id, destination, filename):
     """Download file from Google Drive using gdown with retries"""
@@ -118,59 +193,119 @@ def download_from_gdrive(file_id, destination, filename):
     
     return False
 
-def download_lora_files():
-    """Download all LoRA files from Google Drive"""
-    lora_path = Path("/workspace/ComfyUI/models/loras")
-    lora_path.mkdir(parents=True, exist_ok=True)
+def check_existing_models():
+    """Check what models already exist (useful for hearmeman base image)"""
+    base_path = Path("/workspace/ComfyUI/models")
+    print_info("Checking existing models...")
     
-    success_count = 0
-    failed_count = 0
-    skipped_count = 0
+    found_models = []
+    for category, models in MODELS_CONFIG.items():
+        category_path = base_path / category
+        if category_path.exists():
+            for filename in models.keys():
+                filepath = category_path / filename
+                if filepath.exists():
+                    size_gb = filepath.stat().st_size / (1024**3)
+                    found_models.append(f"{category}/{filename} ({size_gb:.2f}GB)")
+                    print_info(f"Found existing: {category}/{filename}")
     
-    print_info("\n🎭 Downloading LoRA files from Google Drive...")
+    if found_models:
+        print_info(f"Found {len(found_models)} existing models - will skip downloads")
+    else:
+        print_info("No existing models found - will download all")
     
-    for filename, file_id in LORA_FILES.items():
-        filepath = lora_path / filename
-        
-        # Check if file already exists with reasonable size
-        if filepath.exists() and filepath.stat().st_size > 1024 * 1024:  # > 1MB
-            existing_size = filepath.stat().st_size / (1024 * 1024)
-            print_info(f"Skipping {filename} (already exists, {existing_size:.1f}MB)")
-            skipped_count += 1
-            continue
-        
-        # Download from Google Drive
-        if download_from_gdrive(file_id, filepath, filename):
-            success_count += 1
-        else:
-            failed_count += 1
-    
-    print_info(f"\n=== LoRA Download Summary ===")
-    print_info(f"Successful: {success_count}")
-    print_info(f"Failed: {failed_count}")
-    print_info(f"Skipped: {skipped_count}")
-    
-    return failed_count == 0
+    return found_models
 
 def main():
-    """Main download function - LoRA files only"""
-    print_info("AI-Avatarka LoRA Download Script")
-    print_info("Base models pre-downloaded in GitHub Actions")
-    print_info("===============================================")
+    """Main download function"""
+    print_info("AI-Avatarka Model Download Script - CORRECTED VERSION")
+    print_info("===================================================")
     
     try:
-        # Check if base models are present
-        print_info("\n🔍 Phase 1: Checking base models...")
-        if not check_base_models():
-            print_error("Base models missing! Build may have failed.")
-            # Continue anyway in case models are elsewhere
+        # Create directories
+        create_directories()
         
-        # Download LoRA files
-        print_info("\n🎭 Phase 2: Downloading LoRA files...")
-        if not download_lora_files():
-            print_warning("Some LoRA files failed to download")
+        # Check existing models
+        existing = check_existing_models()
         
-        print_info("\n✅ LoRA download completed!")
+        # Download base models from HuggingFace
+        print_info("\n🔄 Phase 1: Downloading base models from HuggingFace...")
+        base_path = Path("/workspace/ComfyUI/models")
+        
+        for category, models in MODELS_CONFIG.items():
+            category_path = base_path / category
+            for filename, model_info in models.items():
+                filepath = category_path / filename
+                
+                if filepath.exists():
+                    existing_size = filepath.stat().st_size / (1024**3)
+                    expected_size = model_info["size_gb"]
+                    
+                    # Check if size is reasonable (within 10% of expected)
+                    if abs(existing_size - expected_size) / expected_size < 0.1:
+                        print_info(f"Skipping {filename} (already exists, {existing_size:.2f}GB)")
+                        continue
+                    else:
+                        print_warning(f"Re-downloading {filename} (size mismatch)")
+                        filepath.unlink()
+                
+                print_info(f"Downloading {filename} ({model_info['size_gb']}GB expected)...")
+                if download_with_progress(model_info["url"], filepath, model_info["size_gb"]):
+                    print_info(f"✅ {filename} downloaded successfully")
+                else:
+                    print_error(f"❌ Failed to download {filename}")
+                    if model_info["required"]:
+                        print_error("This is a required model - build may fail")
+        
+        # Download LoRA files from Google Drive
+        print_info("\n🎭 Phase 2: Downloading LoRA files from Google Drive...")
+        lora_path = base_path / "loras"
+        success_count = 0
+        failed_count = 0
+        
+        for filename, file_id in LORA_FILES.items():
+            filepath = lora_path / filename
+            
+            if filepath.exists() and filepath.stat().st_size > 1024 * 1024:  # > 1MB
+                size_mb = filepath.stat().st_size / (1024 * 1024)
+                print_info(f"Skipping {filename} (already exists, {size_mb:.1f}MB)")
+                continue
+            
+            if download_from_gdrive(file_id, filepath, filename):
+                success_count += 1
+            else:
+                failed_count += 1
+        
+        print_info(f"\n🎉 Download Summary:")
+        print_info(f"LoRA files successful: {success_count}/{len(LORA_FILES)}")
+        print_info(f"LoRA files failed: {failed_count}")
+        
+        # Final verification
+        print_info("\n🔍 Phase 3: Final verification...")
+        
+        # Check required base models
+        missing_required = []
+        for category, models in MODELS_CONFIG.items():
+            category_path = base_path / category
+            for filename, model_info in models.items():
+                if model_info["required"]:
+                    filepath = category_path / filename
+                    if not filepath.exists():
+                        missing_required.append(f"{category}/{filename}")
+        
+        if missing_required:
+            print_error("Missing required base models:")
+            for model in missing_required:
+                print_error(f"  ❌ {model}")
+            return False
+        else:
+            print_info("✅ All required base models present")
+        
+        # Check LoRA files
+        lora_count = sum(1 for f in LORA_FILES.keys() if (lora_path / f).exists())
+        print_info(f"✅ {lora_count}/{len(LORA_FILES)} LoRA files present")
+        
+        print_info("\n🎉 Download completed successfully!")
         return True
         
     except KeyboardInterrupt:

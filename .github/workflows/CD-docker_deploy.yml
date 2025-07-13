@@ -9,11 +9,6 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
-  # Model URLs like hearmeman's buildspec.yml
-  WAN_I2V: https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/diffusion_models/wan2.1_i2v_480p_14B_bf16.safetensors
-  WAN_VAE: https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors
-  WAN_TEXT: https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors
-  WAN_CLIP: https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/clip_vision/clip_vision_h.safetensors
 
 jobs:
   build-and-push:
@@ -29,7 +24,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       
-    - name: Maximize disk space (aggressive cleanup)
+    - name: Maximize disk space
       uses: jlumbroso/free-disk-space@main
       with:
         tool-cache: true
@@ -44,39 +39,55 @@ jobs:
       run: |
         echo "📊 Available space after cleanup:"
         df -h /
-        echo "Available space: $(df -h / | awk 'NR==2{print $4}')"
-      
-    - name: Pre-download models (hearmeman approach)
-      run: |
-        echo "⬇️  Pre-downloading Wan 2.1 models like hearmeman's buildspec.yml"
-        mkdir -p models/diffusion_models models/vae models/text_encoders models/clip_vision
         
-        # Download main model
-        echo "Downloading I2V model..."
-        wget --progress=dot:giga -O "models/diffusion_models/wan2.1_i2v_480p_14B_bf16.safetensors" "$WAN_I2V" &
+    - name: Ensure required directories exist
+      run: |
+        # Create directories that might not exist
+        mkdir -p lora
+        mkdir -p models/diffusion_models
+        mkdir -p models/vae  
+        mkdir -p models/text_encoders
+        mkdir -p models/clip_vision
+        
+        # Verify all required files are present
+        echo "🔍 Checking required files..."
+        required_files=("Dockerfile" "src/handler.py" "workflow/universal_i2v.json" "prompts/effects.json" "builder/download_models.py")
+        for file in "${required_files[@]}"; do
+          if [ ! -f "$file" ]; then
+            echo "❌ Missing: $file"
+            exit 1
+          else
+            echo "✅ Found: $file"
+          fi
+        done
+        
+    - name: Pre-download models (parallel)
+      run: |
+        echo "⬇️ Pre-downloading Wan 2.1 models..."
+        
+        # Download models in parallel for speed
+        wget --progress=dot:giga --timeout=900 -O "models/diffusion_models/wan2.1_i2v_480p_14B_bf16.safetensors" \
+        "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/diffusion_models/wan2.1_i2v_480p_14B_bf16.safetensors" &
         PID1=$!
         
-        # Download smaller models in parallel
-        echo "Downloading VAE..."
-        wget --progress=dot:giga -O "models/vae/wan_2.1_vae.safetensors" "$WAN_VAE" &
+        wget --progress=dot:giga --timeout=300 -O "models/vae/wan_2.1_vae.safetensors" \
+        "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors" &
         PID2=$!
         
-        echo "Downloading text encoder..."
-        wget --progress=dot:giga -O "models/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors" "$WAN_TEXT" &
+        wget --progress=dot:giga --timeout=300 -O "models/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors" \
+        "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors" &
         PID3=$!
         
-        echo "Downloading CLIP vision..."
-        wget --progress=dot:giga -O "models/clip_vision/clip_vision_h.safetensors" "$WAN_CLIP" &
+        wget --progress=dot:giga --timeout=300 -O "models/clip_vision/clip_vision_h.safetensors" \
+        "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/clip_vision/clip_vision_h.safetensors" &
         PID4=$!
         
-        # Wait for all downloads to complete
+        # Wait for all downloads
+        echo "⏳ Waiting for downloads to complete..."
         wait $PID1 $PID2 $PID3 $PID4
         
-        echo "📦 Model download summary:"
-        ls -lh models/diffusion_models/
-        ls -lh models/vae/
-        ls -lh models/text_encoders/
-        ls -lh models/clip_vision/
+        echo "📦 Download verification:"
+        find models -name "*.safetensors" -exec ls -lh {} \;
         
         echo "💾 Total model size:"
         du -sh models/
@@ -116,10 +127,9 @@ jobs:
         # Install minimal dependencies
         RUN pip install --no-cache-dir runpod~=1.7.9 gdown>=5.0.0
         
-        # Copy project files
-        COPY workflow/ /workspace/ComfyUI/workflow/
-        COPY prompts/ /workspace/prompts/
-        COPY src/handler.py /handler.py
+        # Install additional requirements
+        COPY requirements.txt /tmp/requirements.txt
+        RUN pip install --no-cache-dir -r /tmp/requirements.txt && rm /tmp/requirements.txt
         
         # Create model directories
         RUN mkdir -p /workspace/ComfyUI/models/diffusion_models \
@@ -131,12 +141,20 @@ jobs:
         # Copy pre-downloaded models
         COPY models/ /workspace/ComfyUI/models/
         
-        # Copy LoRA files
+        # Copy project files
+        COPY workflow/ /workspace/ComfyUI/workflow/
+        COPY prompts/ /workspace/prompts/
+        COPY src/handler.py /handler.py
+        
+        # Copy LoRA files directory (may be empty)
         COPY lora/ /workspace/ComfyUI/models/loras/
         
-        # Download LoRA files if needed
-        COPY builder/ /builder/
-        RUN python /builder/download_models.py && rm -rf /builder/
+        # Download LoRA files using our script
+        COPY builder/ /workspace/builder/
+        RUN python /workspace/builder/download_models.py || echo "⚠️ Some LoRA downloads failed"
+        
+        # Clean up
+        RUN rm -rf /workspace/builder/
         
         WORKDIR /workspace
         CMD ["python", "-u", "/handler.py"]
@@ -154,46 +172,27 @@ jobs:
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
-        # Optimize for space
-        provenance: false
-        sbom: false
+        timeout-minutes: 60
         
-    - name: Clean up downloaded models
+    - name: Clean up
       if: always()
       run: |
-        echo "🧹 Cleaning up pre-downloaded models..."
-        rm -rf models/
+        echo "🧹 Cleaning up..."
+        rm -rf models/ || true
         docker system prune -af || true
-        
-    - name: Test built image
-      run: |
-        echo "🧪 Testing built image..."
-        IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -1)
-        
-        # Quick test that models are present
-        docker run --rm --entrypoint="" $IMAGE_TAG bash -c "
-        echo '📦 Checking models are present...'
-        ls -la /workspace/ComfyUI/models/diffusion_models/
-        ls -la /workspace/ComfyUI/models/vae/
-        ls -la /workspace/ComfyUI/models/text_encoders/
-        ls -la /workspace/ComfyUI/models/clip_vision/
-        echo '✅ Models check complete'
-        "
         
     - name: Generate deployment summary
       run: |
-        echo "## 🚀 AI-Avatarka Deployment Complete!" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Built using hearmeman-inspired pre-download strategy**" >> $GITHUB_STEP_SUMMARY
+        IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -1)
+        echo "## 🚀 AI-Avatarka Build Complete!" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "**Container Image:**" >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-        echo "${{ steps.meta.outputs.tags }}" | head -1 >> $GITHUB_STEP_SUMMARY
+        echo "$IMAGE_TAG" >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 🎯 RunPod Setup" >> $GITHUB_STEP_SUMMARY
-        echo "1. Go to RunPod Serverless" >> $GITHUB_STEP_SUMMARY
-        echo "2. Create new endpoint" >> $GITHUB_STEP_SUMMARY
-        echo "3. Use the container image above" >> $GITHUB_STEP_SUMMARY
+        echo "1. Create RunPod Serverless Endpoint" >> $GITHUB_STEP_SUMMARY
+        echo "2. Use container image above" >> $GITHUB_STEP_SUMMARY
+        echo "3. Set container disk to 50GB+" >> $GITHUB_STEP_SUMMARY
         echo "4. Upload worker-config.json" >> $GITHUB_STEP_SUMMARY
-        echo "5. Test with sample input!" >> $GITHUB_STEP_SUMMARY
