@@ -50,11 +50,9 @@ test_*
 examples/
 samples/
 
-# REMOVED: models/ - allowing pre-downloaded models from GitHub Actions
-# REMOVED: *.safetensors - allowing pre-downloaded model files
-# REMOVED: ComfyUI/ - not excluding this
+# Allow models and safetensors in build context now
+# (Hearmeman approach downloads during build, not pre-download)
 
-# Only exclude these specific large files if they exist locally
-# (but allow them if created during GitHub Actions)
+# Only exclude local development artifacts
 local_models/
 *.tmp_download

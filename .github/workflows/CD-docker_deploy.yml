@@ -1,4 +1,4 @@
-name: CD - Build with Pre-Downloaded Models
+name: CD - Hearmeman Style Build
 
 on:
   push:
@@ -17,84 +17,31 @@ jobs:
       contents: read
       packages: write
       
-    outputs:
-      image-tag: ${{ steps.meta.outputs.tags }}
-      
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
       
-    - name: Maximize disk space
+    # Less aggressive cleanup since we're using separate layers
+    - name: Free disk space
       uses: jlumbroso/free-disk-space@main
       with:
-        tool-cache: true
+        tool-cache: false  # Keep some tools
         android: true
         dotnet: true
         haskell: true
         large-packages: true
-        docker-images: true
+        docker-images: false  # Keep Docker cache
         swap-storage: true
-        
-    - name: Check available space after cleanup
-      run: |
-        echo "📊 Available space after cleanup:"
-        df -h /
-        
-    - name: Ensure required directories exist
-      run: |
-        # Create directories that might not exist
-        mkdir -p lora
-        mkdir -p models/diffusion_models
-        mkdir -p models/vae  
-        mkdir -p models/text_encoders
-        mkdir -p models/clip_vision
-        
-        # Verify all required files are present
-        echo "🔍 Checking required files..."
-        required_files=("Dockerfile" "src/handler.py" "workflow/universal_i2v.json" "prompts/effects.json" "builder/download_models.py")
-        for file in "${required_files[@]}"; do
-          if [ ! -f "$file" ]; then
-            echo "❌ Missing: $file"
-            exit 1
-          else
-            echo "✅ Found: $file"
-          fi
-        done
-        
-    - name: Pre-download models (parallel)
-      run: |
-        echo "⬇️ Pre-downloading Wan 2.1 models..."
-        
-        # Download models in parallel for speed
-        wget --progress=dot:giga --timeout=900 -O "models/diffusion_models/wan2.1_i2v_480p_14B_bf16.safetensors" \
-        "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/diffusion_models/wan2.1_i2v_480p_14B_bf16.safetensors" &
-        PID1=$!
-        
-        wget --progress=dot:giga --timeout=300 -O "models/vae/wan_2.1_vae.safetensors" \
-        "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors" &
-        PID2=$!
-        
-        wget --progress=dot:giga --timeout=300 -O "models/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors" \
-        "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors" &
-        PID3=$!
-        
-        wget --progress=dot:giga --timeout=300 -O "models/clip_vision/clip_vision_h.safetensors" \
-        "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/clip_vision/clip_vision_h.safetensors" &
-        PID4=$!
-        
-        # Wait for all downloads
-        echo "⏳ Waiting for downloads to complete..."
-        wait $PID1 $PID2 $PID3 $PID4
-        
-        echo "📦 Download verification:"
-        find models -name "*.safetensors" -exec ls -lh {} \;
-        
-        echo "💾 Total model size:"
-        du -sh models/
         
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
-      
+      with:
+        # Enable more efficient caching
+        config-inline: |
+          [worker.oci]
+            gc = true
+            gckeepstorage = 5000
+            
     - name: Log in to GitHub Container Registry
       uses: docker/login-action@v3
       with:
@@ -110,89 +57,57 @@ jobs:
         tags: |
           type=ref,event=branch
           type=semver,pattern={{version}}
-          type=sha,prefix={{branch}}-,suffix=-{{date 'YYYYMMDD'}}
           type=raw,value=latest,enable={{is_default_branch}}
           
-    - name: Create optimized Dockerfile
+    - name: Ensure required directories exist
       run: |
-        cat > Dockerfile.optimized << 'EOF'
-        # Optimized build using pre-downloaded models
-        FROM hearmeman/comfyui-wan-template:v2
+        # Create lora directory if it doesn't exist
+        mkdir -p lora
+        touch lora/.gitkeep
         
-        ENV DEBIAN_FRONTEND=noninteractive \
-            PIP_PREFER_BINARY=1 \
-            PYTHONUNBUFFERED=1 \
-            COMFYUI_PATH="/workspace/ComfyUI"
-        
-        # Install minimal dependencies
-        RUN pip install --no-cache-dir runpod~=1.7.9 gdown>=5.0.0
-        
-        # Install additional requirements
-        COPY requirements.txt /tmp/requirements.txt
-        RUN pip install --no-cache-dir -r /tmp/requirements.txt && rm /tmp/requirements.txt
-        
-        # Create model directories
-        RUN mkdir -p /workspace/ComfyUI/models/diffusion_models \
-                     /workspace/ComfyUI/models/vae \
-                     /workspace/ComfyUI/models/text_encoders \
-                     /workspace/ComfyUI/models/clip_vision \
-                     /workspace/ComfyUI/models/loras
-        
-        # Copy pre-downloaded models
-        COPY models/ /workspace/ComfyUI/models/
-        
-        # Copy project files
-        COPY workflow/ /workspace/ComfyUI/workflow/
-        COPY prompts/ /workspace/prompts/
-        COPY src/handler.py /handler.py
-        
-        # Copy LoRA files directory (may be empty)
-        COPY lora/ /workspace/ComfyUI/models/loras/
-        
-        # Download LoRA files using our script
-        COPY builder/ /workspace/builder/
-        RUN python /workspace/builder/download_models.py || echo "⚠️ Some LoRA downloads failed"
-        
-        # Clean up
-        RUN rm -rf /workspace/builder/
-        
-        WORKDIR /workspace
-        CMD ["python", "-u", "/handler.py"]
-        EOF
+        # Verify required files
+        echo "🔍 Checking required files..."
+        required_files=("src/handler.py" "workflow/universal_i2v.json" "prompts/effects.json" "builder/download_models.py")
+        for file in "${required_files[@]}"; do
+          if [ ! -f "$file" ]; then
+            echo "❌ Missing: $file"
+            exit 1
+          else
+            echo "✅ Found: $file"
+          fi
+        done
         
     - name: Build and push Docker image
       id: build
       uses: docker/build-push-action@v5
       with:
         context: .
-        file: ./Dockerfile.optimized
+        file: ./Dockerfile
         platforms: linux/amd64
         push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
+        # Use cache for faster builds (Hearmeman approach with layers)
         cache-from: type=gha
         cache-to: type=gha,mode=max
-        timeout-minutes: 60
-        
-    - name: Clean up
-      if: always()
-      run: |
-        echo "🧹 Cleaning up..."
-        rm -rf models/ || true
-        docker system prune -af || true
+        # Extended timeout for model downloads
+        timeout-minutes: 180
         
     - name: Generate deployment summary
       run: |
         IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -1)
         echo "## 🚀 AI-Avatarka Build Complete!" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Built using Hearmeman's efficient layer approach**" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
         echo "**Container Image:**" >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
         echo "$IMAGE_TAG" >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 🎯 RunPod Setup" >> $GITHUB_STEP_SUMMARY
+        echo "### 🎯 RunPod Deployment" >> $GITHUB_STEP_SUMMARY
         echo "1. Create RunPod Serverless Endpoint" >> $GITHUB_STEP_SUMMARY
         echo "2. Use container image above" >> $GITHUB_STEP_SUMMARY
         echo "3. Set container disk to 50GB+" >> $GITHUB_STEP_SUMMARY
-        echo "4. Upload worker-config.json" >> $GITHUB_STEP_SUMMARY
+        echo "4. Configure with worker-config.json" >> $GITHUB_STEP_SUMMARY
+        echo "5. Test with sample image upload" >> $GITHUB_STEP_SUMMARY
