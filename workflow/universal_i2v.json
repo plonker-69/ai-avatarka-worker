@@ -12,7 +12,7 @@
   },
   "22": {
     "inputs": {
-      "model": "Wan2_1-I2V-14B-480P_fp8_e5m2.safetensors",
+      "model": "wan2.1_i2v_480p_14B_bf16.safetensors",
       "quantization": "fp8_e5m2",
       "base_precision": "bf16",
       "load_device": "gpu",
@@ -76,7 +76,7 @@
   },
   "11": {
     "inputs": {
-      "model_name": "umt5-xxl-enc-bf16.safetensors",
+      "model_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
       "precision": "bf16",
       "device": "gpu",
       "attention_mode": "disabled"
@@ -117,7 +117,7 @@
       "riflex_freq_index": 0,
       "force_offload": true,
       "frames": 85,
-      "seed": 12345,
+      "seed": -1,
       "control_after_generate": "fixed",
       "denoise": true,
       "scheduler": "dpm++",
