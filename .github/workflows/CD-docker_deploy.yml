@@ -11,7 +11,7 @@ env:
 
 jobs:
   build:
-    runs-on: cunt
+    runs-on: BIG_CUNT
     permissions:
       contents: read
       packages: write
