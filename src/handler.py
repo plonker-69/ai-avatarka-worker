@@ -127,8 +127,6 @@ def process_input_image(image_data: str) -> Optional[str]:
         logger.error(f"❌ Failed to process input image: {str(e)}")
         return None
 
-# In your handler.py, update the customize_workflow function:
-
 def customize_workflow(workflow: Dict, params: Dict) -> Dict:
     """Customize workflow with user parameters"""
     try:
@@ -186,10 +184,6 @@ def customize_workflow(workflow: Dict, params: Dict) -> Dict:
                     inputs["frames"] = params["frames"]
         
         logger.info(f"✅ Workflow customized for effect: {effect}")
-        return workflow
-        
-    except Exception as e:
-        logger.error(f"❌ Error customizing workflow: {str(e)}")
         return workflow
         
     except Exception as e:
