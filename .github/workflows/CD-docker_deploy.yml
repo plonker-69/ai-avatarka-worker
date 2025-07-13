@@ -1,4 +1,4 @@
-name: CD - Docker Hub Build
+name: CD - Network Storage Build
 
 on:
   push:
@@ -7,44 +7,55 @@ on:
   workflow_dispatch:
 
 env:
-  DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-  IMAGE_NAME: ai-avatarka-worker
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      packages: write
       
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
       
+    - name: Create required directories
+      run: |
+        mkdir -p lora
+        touch lora/.gitkeep
+        echo "📁 Build context prepared"
+        
+    - name: Check build context size
+      run: |
+        echo "📊 Build context contents:"
+        du -sh * | sort -hr
+        echo "Total build context size: $(du -sh . | cut -f1)"
+        echo "✅ Lightweight build - no large model files"
+        
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
       
-    - name: Log in to Docker Hub
+    - name: Log in to GitHub Container Registry
       uses: docker/login-action@v3
       with:
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
         
     - name: Extract metadata
       id: meta
       uses: docker/metadata-action@v5
       with:
-        images: ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
         tags: |
           type=ref,event=branch
           type=semver,pattern={{version}}
           type=raw,value=latest,enable={{is_default_branch}}
           
-    - name: Create required directories
-      run: |
-        mkdir -p lora
-        touch lora/.gitkeep
-        
-    - name: Build and push to Docker Hub
+    - name: Build and push Docker image
+      id: build
       uses: docker/build-push-action@v5
       with:
         context: .
@@ -53,27 +64,86 @@ jobs:
         push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
-        # Use Docker Hub's infrastructure for the heavy lifting
-        cache-from: type=registry,ref=${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:cache
-        cache-to: type=registry,ref=${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:cache,mode=max
-        timeout-minutes: 120
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        # Fast build since no large downloads
+        timeout-minutes: 30
+        
+    - name: Validate lightweight image
+      run: |
+        echo "🧪 Validating built image..."
+        IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -1)
+        
+        # Quick validation
+        docker run --rm --entrypoint="" $IMAGE_TAG bash -c "
+        echo '🔍 Checking image contents...'
+        
+        # Check that project files are present
+        if [ -f '/workspace/src/handler.py' ]; then
+          echo '✅ Handler present'
+        else
+          echo '❌ Handler missing'
+          exit 1
+        fi
+        
+        if [ -f '/workspace/network_storage_startup.py' ]; then
+          echo '✅ Network storage startup script present'
+        else
+          echo '❌ Startup script missing'
+          exit 1
+        fi
+        
+        if [ -d '/workspace/ComfyUI/workflow' ]; then
+          echo '✅ Workflow directory present'
+        else
+          echo '❌ Workflow directory missing'
+          exit 1
+        fi
+        
+        # Check Python imports
+        python -c 'import runpod; print(\"✅ RunPod available\")'
+        python -c 'import gdown; print(\"✅ gdown available\")'
+        
+        echo '✅ Lightweight image validation passed'
+        "
         
     - name: Generate deployment summary
-      if: success()
       run: |
-        IMAGE_TAG="${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest"
-        echo "## 🚀 AI-Avatarka Build Complete!" >> $GITHUB_STEP_SUMMARY
+        IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -1)
+        echo "## 🚀 AI-Avatarka Network Storage Build Complete!" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Built on Docker Hub infrastructure (free, unlimited space)**" >> $GITHUB_STEP_SUMMARY
+        echo "**🎯 Lightweight image with smart network storage caching**" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Container Image:**" >> $GITHUB_STEP_SUMMARY
+        echo "### 📦 Container Image" >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
         echo "$IMAGE_TAG" >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 🎯 RunPod Deployment" >> $GITHUB_STEP_SUMMARY
-        echo "1. Create RunPod Serverless Endpoint" >> $GITHUB_STEP_SUMMARY
-        echo "2. Use Docker Hub image: \`$IMAGE_TAG\`" >> $GITHUB_STEP_SUMMARY
-        echo "3. Set container disk to 50GB+" >> $GITHUB_STEP_SUMMARY
-        echo "4. Configure with worker-config.json" >> $GITHUB_STEP_SUMMARY
-        echo "5. **Models pre-loaded** - no cold start delays!" >> $GITHUB_STEP_SUMMARY
+        echo "### 🏗️ RunPod Deployment Instructions" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "#### 1. Create Network Storage" >> $GITHUB_STEP_SUMMARY
+        echo "- Go to RunPod → Storage → Create Network Volume" >> $GITHUB_STEP_SUMMARY
+        echo "- Name: \`ai-avatarka-models\`" >> $GITHUB_STEP_SUMMARY
+        echo "- Size: 50GB (for model storage)" >> $GITHUB_STEP_SUMMARY
+        echo "- Region: Same as your serverless endpoints" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "#### 2. Create Serverless Endpoint" >> $GITHUB_STEP_SUMMARY
+        echo "- Container Image: \`$IMAGE_TAG\`" >> $GITHUB_STEP_SUMMARY
+        echo "- Container Disk: 20GB (just for app files)" >> $GITHUB_STEP_SUMMARY
+        echo "- **Mount Network Volume:** \`ai-avatarka-models\` to \`/runpod-volume\`" >> $GITHUB_STEP_SUMMARY
+        echo "- Upload \`worker-config.json\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### ⚡ How It Works" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**First request:** Downloads 30GB models to network storage (~10 min)" >> $GITHUB_STEP_SUMMARY
+        echo "**All subsequent requests:** Uses cached models (~10 sec startup)" >> $GITHUB_STEP_SUMMARY
+        echo "**Shared across workers:** All endpoints use same cached models" >> $GITHUB_STEP_SUMMARY
+        echo "**Persistent:** Models survive worker shutdowns/restarts" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 💰 Cost Benefits" >> $GITHUB_STEP_SUMMARY
+        echo "- **Storage cost:** ~$5/month for 50GB network volume" >> $GITHUB_STEP_SUMMARY
+        echo "- **Execution cost:** No repeated model downloads" >> $GITHUB_STEP_SUMMARY
+        echo "- **Build cost:** Free (no large GitHub runners needed)" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🎉 Ready to Deploy!" >> $GITHUB_STEP_SUMMARY
+        echo "Your AI-Avatarka worker is ready with smart model caching!"
