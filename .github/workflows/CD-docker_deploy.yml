@@ -1,9 +1,8 @@
-name: CD - Hearmeman Style Build
+name: CD - Ultra Space Optimized
 
 on:
   push:
     branches: [ main ]
-    tags: [ 'v*' ]
   workflow_dispatch:
 
 env:
@@ -18,96 +17,109 @@ jobs:
       packages: write
       
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      
-    # Less aggressive cleanup since we're using separate layers
-    - name: Free disk space
-      uses: jlumbroso/free-disk-space@main
-      with:
-        tool-cache: false  # Keep some tools
-        android: true
-        dotnet: true
-        haskell: true
-        large-packages: true
-        docker-images: false  # Keep Docker cache
-        swap-storage: true
+    - name: Maximize disk space (ultra aggressive)
+      run: |
+        echo "🧹 Ultra aggressive cleanup..."
         
-    - name: Set up Docker Buildx
+        # Show initial space
+        echo "📊 Initial space:"
+        df -h /
+        
+        # Remove massive directories first
+        sudo rm -rf /usr/local/lib/android
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /opt/ghc
+        sudo rm -rf /usr/local/.ghcup
+        sudo rm -rf /usr/local/share/powershell
+        sudo rm -rf /usr/local/lib/node_modules
+        sudo rm -rf /opt/az
+        sudo rm -rf /usr/local/lib/heroku
+        sudo rm -rf /home/linuxbrew
+        sudo rm -rf /usr/local/graalvm
+        sudo rm -rf /usr/local/sqlpackage
+        
+        # Remove language toolchains
+        sudo rm -rf /opt/hostedtoolcache/CodeQL
+        sudo rm -rf /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk
+        sudo rm -rf /opt/hostedtoolcache/Python
+        sudo rm -rf /opt/hostedtoolcache/PyPy
+        sudo rm -rf /opt/hostedtoolcache/node
+        sudo rm -rf /opt/hostedtoolcache/go
+        sudo rm -rf /opt/hostedtoolcache/Ruby
+        
+        # Clean package caches
+        sudo apt-get clean
+        sudo apt-get autoremove -y
+        sudo apt-get autoclean
+        
+        # Clean Docker aggressively
+        docker system prune -af --volumes
+        
+        # Clean logs and temp files
+        sudo rm -rf /var/log/*
+        sudo rm -rf /tmp/*
+        sudo rm -rf /var/tmp/*
+        sudo rm -rf ~/.cache
+        
+        # Show space after cleanup
+        echo "📊 Space after cleanup:"
+        df -h /
+        
+    - name: Checkout repository (minimal)
+      uses: actions/checkout@v4
+      with:
+        # Shallow clone to save space
+        fetch-depth: 1
+        
+    - name: Create minimal required directories
+      run: |
+        mkdir -p lora
+        touch lora/.gitkeep
+        
+    - name: Set up Docker Buildx (minimal config)
       uses: docker/setup-buildx-action@v3
       with:
-        # Enable more efficient caching
         config-inline: |
           [worker.oci]
             gc = true
-            gckeepstorage = 5000
+            gckeepstorage = 1000
             
-    - name: Log in to GitHub Container Registry
+    - name: Log in to registry
       uses: docker/login-action@v3
       with:
         registry: ${{ env.REGISTRY }}
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
         
-    - name: Extract metadata
-      id: meta
-      uses: docker/metadata-action@v5
-      with:
-        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-        tags: |
-          type=ref,event=branch
-          type=semver,pattern={{version}}
-          type=raw,value=latest,enable={{is_default_branch}}
-          
-    - name: Ensure required directories exist
+    - name: Check space before build
       run: |
-        # Create lora directory if it doesn't exist
-        mkdir -p lora
-        touch lora/.gitkeep
+        echo "📊 Available space before build:"
+        df -h /
+        echo "Free space: $(df / | tail -1 | awk '{print $4}')"
         
-        # Verify required files
-        echo "🔍 Checking required files..."
-        required_files=("src/handler.py" "workflow/universal_i2v.json" "prompts/effects.json" "builder/download_models.py")
-        for file in "${required_files[@]}"; do
-          if [ ! -f "$file" ]; then
-            echo "❌ Missing: $file"
-            exit 1
-          else
-            echo "✅ Found: $file"
-          fi
-        done
-        
-    - name: Build and push Docker image
-      id: build
+    - name: Build and push (no cache to save space)
       uses: docker/build-push-action@v5
       with:
         context: .
         file: ./Dockerfile
         platforms: linux/amd64
         push: true
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
-        # Use cache for faster builds (Hearmeman approach with layers)
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-        # Extended timeout for model downloads
-        timeout-minutes: 180
+        tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+        # Disable cache to save space
+        no-cache: true
+        # Remove build cache after
+        rm: true
+        # Extended timeout
+        timeout-minutes: 120
         
-    - name: Generate deployment summary
+    - name: Final cleanup
+      if: always()
       run: |
-        IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -1)
-        echo "## 🚀 AI-Avatarka Build Complete!" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Built using Hearmeman's efficient layer approach**" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Container Image:**" >> $GITHUB_STEP_SUMMARY
-        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-        echo "$IMAGE_TAG" >> $GITHUB_STEP_SUMMARY
-        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 🎯 RunPod Deployment" >> $GITHUB_STEP_SUMMARY
-        echo "1. Create RunPod Serverless Endpoint" >> $GITHUB_STEP_SUMMARY
-        echo "2. Use container image above" >> $GITHUB_STEP_SUMMARY
-        echo "3. Set container disk to 50GB+" >> $GITHUB_STEP_SUMMARY
-        echo "4. Configure with worker-config.json" >> $GITHUB_STEP_SUMMARY
-        echo "5. Test with sample image upload" >> $GITHUB_STEP_SUMMARY
+        echo "🧹 Final cleanup..."
+        docker system prune -af --volumes || true
+        
+    - name: Generate summary
+      if: success()
+      run: |
+        echo "## 🚀 Build Success!" >> $GITHUB_STEP_SUMMARY
+        echo "**Image:** \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest\`" >> $GITHUB_STEP_SUMMARY
